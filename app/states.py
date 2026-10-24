@@ -216,9 +216,10 @@ def h_collect_doc(s, text, media):
 
 
 def h_confirm_type(s, text, media):
-    if text == "1":
+    low = text.strip().lower()
+    if low in ("1", "yes", "y", "correct", "right", "confirm"):
         ask_profile(s, 0)
-    elif text == "2":
+    elif low in ("2", "no", "n", "wrong"):
         say(s, "What is this agreement?\n1 Shop rent\n2 Home rent\n3 Supplier\n4 Loan\n5 Other")
         s["state"] = "FIX_TYPE"
     else:
@@ -384,9 +385,10 @@ def propose_must_haves(s):
 
 
 def h_musthaves(s, text, media):
-    if text == "1":
+    low = text.strip().lower()
+    if low in ("1", "yes", "ok", "keep", "done", "continue"):
         run_report(s)
-    elif text == "2":
+    elif low in ("2", "change", "edit", "no"):
         say(s, "Type what you'd change, e.g. 'a 24-month lock-in is fine'.")
         s["state"] = "MH_EDIT"
     else:
@@ -440,14 +442,6 @@ def run_report(s):
     ])
     say(s, "\n".join(lines))
 
-    try:
-        script = agents.voice_script(s["report"], profile, s["lang"])
-        url = voice.tts(script)
-        if url:
-            say(s, "🔊 Here is your spoken risk summary:", media_url=url)
-    except Exception as e:
-        print(f"[voice skipped] {e}")
-
     s["state"] = "REPORT"
 
 
@@ -459,9 +453,9 @@ def h_report(s, text, media):
     elif text == "2":
         say(s, "Type your question about the agreement.")
         s["state"] = "ASK_Q"
-    elif text == "3":
+    elif text == "3" or "voice" in text.lower() or "audio" in text.lower():
         script = agents.voice_script(s["report"], s["profile"], s["lang"])
-        url = voice.tts(script)
+        url = voice.tts(script, s.get("lang", "en"))
         if url:
             say(s, "🔊 Spoken risk summary:", media_url=url)
         else:
@@ -507,10 +501,11 @@ def h_evidence(s, text, media):
 
 
 def h_upsell(s, text, media):
-    if text == "1":
+    low = text.strip().lower()
+    if low in ("1", "pay", "unlock", "buy", "yes"):
         s["after_pay"] = "tone"
         start_payment(s)
-    elif text == "2":
+    elif low in ("2", "continue", "skip", "free", "no"):
         ask_send_choice(s)
     else:
         say(s, "Please reply 1 or 2.")
@@ -565,11 +560,13 @@ def on_paid(s):
 
 
 def h_tone(s, text, media):
-    tones = {"1": "friendly", "2": "firm", "3": "formal"}
-    if text not in tones:
-        say(s, "Please reply 1, 2 or 3.")
+    tones = {"1": "friendly", "2": "firm", "3": "formal",
+             "friendly": "friendly", "firm": "firm", "formal": "formal"}
+    low = text.strip().lower()
+    if low not in tones:
+        say(s, "Please reply 1, 2 or 3.\n1 Friendly\n2 Firm\n3 Formal")
         return
-    s["tone"] = tones[text]
+    s["tone"] = tones[low]
     neg = build_negotiation(s, paid=True)
     rows = "\n".join(f"• {a['topic']} (Clause {a['clause']}): now {a['now']} → ask {a['ask']}, "
                      f"fallback {a['fallback']}" for a in neg["asks"])

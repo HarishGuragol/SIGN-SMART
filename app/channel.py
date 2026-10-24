@@ -90,7 +90,21 @@ def _send_telegram(chat_id, body, media_url, menu):
     try:
         text, keyboard = _to_buttons(body) if menu else (body, None)
         if media_url:
-            # MP3 by URL works with sendAudio (sendVoice would need OGG/Opus)
+            # Check if file exists on disk to upload bytes directly
+            filename = media_url.split("/")[-1]
+            local_path = config.MEDIA_DIR / filename
+            if local_path.exists():
+                try:
+                    with open(local_path, "rb") as f:
+                        files = {"audio": (filename, f.read(), "audio/mp4")}
+                        data = {"chat_id": chat_id, "caption": _md(text)[:1000], "parse_mode": "HTML"}
+                        r = httpx.post(f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendAudio", data=data, files=files, timeout=60)
+                        if r.json().get("ok"):
+                            return str(r.json()["result"]["message_id"])
+                except Exception as ex:
+                    print(f"[telegram direct audio upload fallback] {ex}")
+
+            # Fallback to URL method
             res = tg("sendAudio", chat_id=chat_id, audio=media_url, caption=_md(text)[:1000], parse_mode="HTML")
             return str(res["message_id"])
         mid = None

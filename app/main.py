@@ -89,9 +89,14 @@ async def telegram_webhook(request: Request, bg: BackgroundTasks):
                 elif m.get("voice") or m.get("audio"):
                     target = m.get("voice") or m.get("audio")
                     try:
-                        channel.tg_download(target["file_id"], "audio/ogg")
+                        audio_data, mime = channel.tg_download(target["file_id"], "audio/ogg")
+                        transcribed = voice.stt(audio_data, mime)
+                        if transcribed:
+                            print(f"[telegram voice note transcribed] {transcribed}")
+                            states.handle(f"tg:{m['chat']['id']}", transcribed, [])
+                            return
                     except Exception as e:
-                        print(f"[voice download] {e}")
+                        print(f"[voice download/stt failed] {e}")
                     states.handle(f"tg:{m['chat']['id']}", m.get("caption") or "1", [])
                     return
                 states.handle(f"tg:{m['chat']['id']}", m.get("text") or m.get("caption") or "", media)
