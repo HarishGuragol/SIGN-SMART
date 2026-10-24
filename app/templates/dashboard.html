@@ -3,49 +3,108 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your agreement risk</title>
+<title>Sign Smart · Risk Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-  :root { --ink:#14213D; --bg:#F7F5F0; --muted:#5B6475; --line:#E2E4E9; }
+  :root {
+    --ink:#14213D; --bg:#F7F5F0; --muted:#5B6475; --line:#E2E4E9;
+    --red:#8A1C10; --red-bg:#FDE4E1;
+    --amber:#7A2E0B; --amber-bg:#FDEBD3;
+    --green:#0F4A2D; --green-bg:#E3F3EA;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font-family:system-ui, "Noto Sans", sans-serif; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
   main { max-width:880px; margin:0 auto; padding:20px 16px 48px; display:grid; gap:16px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
   h1 { font-size:22px; margin:0; } h2 { font-size:16px; margin:0 0 12px; }
   .muted { color:var(--muted); font-size:14px; }
   .hero { display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; }
-  .score { font-size:44px; font-weight:700; line-height:1; }
-  .pill { display:inline-block; padding:6px 12px; border-radius:999px; font-weight:700; font-size:14px; }
+  .score { font-size:46px; font-weight:800; line-height:1; }
+  .pill { display:inline-block; padding:6px 12px; border-radius:999px; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; }
+  .risk-badge { display:inline-block; padding:4px 10px; border-radius:8px; font-weight:700; font-size:13px; margin-top:4px; }
   .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; }
   .big { font-size:28px; font-weight:700; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   th, td { text-align:left; padding:10px 8px; border-top:1px solid var(--line); vertical-align:top; }
   th { color:var(--muted); font-weight:600; border-top:0; }
   .sev { font-weight:700; font-size:12px; padding:2px 8px; border-radius:6px; white-space:nowrap; }
-  .high { background:#FDE4E1; color:#8A1C10; } .medium { background:#FDEBD3; color:#7A2E0B; } .low { background:#E8EDF7; color:#14213D; }
+  .high { background:var(--red-bg); color:var(--red); }
+  .medium { background:var(--amber-bg); color:var(--amber); }
+  .low { background:var(--green-bg); color:var(--green); }
   .tablewrap { overflow-x:auto; }
   ul.checks { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
-  .foot { font-size:12px; color:var(--muted); text-align:center; }
+  .foot { font-size:12px; color:var(--muted); text-align:center; margin-top:16px; }
+
+  /* Risk Scale Explainer Card */
+  .scale-card { background:#F8FAFC; border:1px solid #E2E8F0; border-radius:14px; padding:16px; }
+  .scale-bar { height:10px; border-radius:5px; background:linear-gradient(to right, #22C55E 0%, #22C55E 35%, #F59E0B 36%, #F59E0B 65%, #EF4444 66%, #EF4444 100%); margin:12px 0 8px; position:relative; }
+  .scale-pin { position:absolute; top:-6px; width:4px; height:22px; background:#1E293B; border-radius:2px; transform:translateX(-50%); }
+  .scale-labels { display:flex; justify-content:space-between; font-size:11px; color:#64748B; font-weight:600; }
+  .tier-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-top:14px; }
+  .tier-box { padding:10px 12px; border-radius:10px; font-size:12px; line-height:1.4; }
+  .tier-box b { display:block; font-size:13px; margin-bottom:2px; }
+  .tier-low { background:#F0FDF4; border:1px solid #BBF7D0; color:#166534; }
+  .tier-med { background:#FFFBEB; border:1px solid #FDE68A; color:#92400E; }
+  .tier-high { background:#FEF2F2; border:1px solid #FECACA; color:#991B1B; }
+  .active-tier { outline:2px solid currentColor; box-shadow:0 0 8px rgba(0,0,0,0.08); font-weight:600; }
 </style>
 </head>
 <body>
 <main>
+  <!-- Hero Section -->
   <div class="card hero">
     <div>
-      <h1>Your agreement risk</h1>
-      <div class="muted" id="sumline"></div>
+      <div style="font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Sign Smart Risk Audit</div>
+      <h1>Agreement Risk Assessment</h1>
+      <div class="muted" id="sumline" style="margin-top:6px;"></div>
     </div>
     <div style="text-align:right">
-      <div class="score" id="score"></div>
-      <div class="muted">risk score out of 100</div>
-      <div style="margin-top:8px"><span class="pill" id="verdict"></span></div>
+      <div class="score" id="score">--</div>
+      <div class="muted" style="font-size:12px; margin-top:2px;">Risk Score (out of 100)</div>
+      <div id="risklevelwrap" style="margin-top:6px;"></div>
+      <div style="margin-top:6px;"><span class="pill" id="verdict"></span></div>
     </div>
   </div>
 
+  <!-- Score Meaning Explainer -->
+  <div class="card scale-card">
+    <h2 style="margin:0 0 4px; font-size:15px;" id="explainer-title">Understanding Your Risk Score</h2>
+    <div class="muted" id="explainer-desc" style="font-size:13px; line-height:1.5;"></div>
+
+    <div class="scale-bar">
+      <div class="scale-pin" id="scale-pin" style="left:72%;"></div>
+    </div>
+    <div class="scale-labels">
+      <span>0 (Safe)</span>
+      <span>35 (Low)</span>
+      <span>65 (Moderate)</span>
+      <span>100 (Critical)</span>
+    </div>
+
+    <div class="tier-grid">
+      <div class="tier-box tier-low" id="tier-box-low">
+        <b>🟢 0 – 35 · Low Risk</b>
+        Standard terms with fair clauses. Safe to sign with minimal checks.
+      </div>
+      <div class="tier-box tier-med" id="tier-box-med">
+        <b>🟠 36 – 65 · Moderate Risk</b>
+        Some one-sided terms (e.g. deposit refund delays). Negotiation recommended.
+      </div>
+      <div class="tier-box tier-high" id="tier-box-high">
+        <b>🔴 66 – 100 · High Risk</b>
+        Severe financial traps (e.g. lock-in penalties, forfeiture). High danger of loss.
+      </div>
+    </div>
+  </div>
+
+  <!-- Visual Charts Section -->
   <div class="grid2">
-    <div class="card"><h2>Risk by area</h2><canvas id="cat" height="220" role="img" aria-label="Risk score by area"></canvas></div>
     <div class="card">
-      <h2>Money at risk</h2>
+      <h2>Risk by Area</h2>
+      <canvas id="cat" height="220" role="img" aria-label="Risk score by area"></canvas>
+    </div>
+    <div class="card">
+      <h2>Money at Risk</h2>
       <div class="big" id="total"></div>
       <div class="muted" id="months"></div>
       <canvas id="exp" height="180" style="margin-top:12px" role="img" aria-label="Money at risk by clause"></canvas>
@@ -53,62 +112,125 @@
     </div>
   </div>
 
+  <!-- Clauses Table -->
   <div class="card">
-    <h2>Clauses to watch</h2>
-    <div class="tablewrap"><table><thead><tr><th>Clause</th><th>Risk</th><th>Level</th><th>What it means for you</th></tr></thead><tbody id="risks"></tbody></table></div>
+    <h2>Clauses to Watch</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Clause</th><th>Risk</th><th>Level</th><th>What it means for you</th></tr></thead>
+        <tbody id="risks"></tbody>
+      </table>
+    </div>
   </div>
 
+  <!-- Must Haves and Benefits -->
   <div class="grid2">
-    <div class="card"><h2>Your must-haves</h2><ul class="checks" id="checks"></ul></div>
-    <div class="card"><h2>In your favour and unclear</h2><ul class="checks" id="good"></ul></div>
+    <div class="card"><h2>Your Must-Haves Checklist</h2><ul class="checks" id="checks"></ul></div>
+    <div class="card"><h2>Protections & Unclear Terms</h2><ul class="checks" id="good"></ul></div>
   </div>
 
+  <!-- Evaluation After Owner Reply -->
   <div class="card" id="evalcard" hidden>
-    <h2>After the owner's reply</h2>
-    <div id="evalverdict" style="margin-bottom:10px"></div>
+    <h2>After the Owner's Reply</h2>
+    <div id="evalverdict" style="margin-bottom:10px; font-weight:700;"></div>
     <ul class="checks" id="evalchecks"></ul>
   </div>
 
-  <p class="foot">Numbers are calculated from your agreement. Guidance, not legal advice. This page expires with your chat.</p>
+  <p class="foot">Generated by Sign Smart AI. Calculated from extracted contract terms and profile constraints. Guidance, not formal legal advice.</p>
 </main>
+
 <script>
   const D = __DATA__;
-  const R = D.report, E = R.exposure || {items:[], total:0};
+  const R = D.report || {}, E = R.exposure || {items:[], total:0};
   const rs = n => n == null ? "-" : "₹" + Math.round(n).toLocaleString("en-IN");
   const el = id => document.getElementById(id);
   const li = (text, color) => { const x = document.createElement("li"); x.textContent = text; if (color) x.style.color = color; return x; };
 
   const s = D.summary || {};
-  el("sumline").textContent = [s.type && s.type.replace("_", " "), s.rent && rs(s.rent) + "/month",
-    s.deposit && rs(s.deposit) + " deposit", s.lock_in && s.lock_in + "-month lock-in"].filter(Boolean).join(" · ");
-  el("score").textContent = R.overall_score ?? "-";
+  el("sumline").textContent = [
+    s.type && s.type.replace("_", " ").toUpperCase(),
+    s.rent && rs(s.rent) + "/month",
+    s.deposit && rs(s.deposit) + " deposit",
+    s.lock_in && s.lock_in + "-month lock-in"
+  ].filter(Boolean).join(" · ");
+
+  const score = R.overall_score ?? 50;
+  el("score").textContent = score;
+
+  // Pin on scale
+  const pinPct = Math.min(Math.max(score, 2), 98);
+  el("scale-pin").style.left = pinPct + "%";
+
+  // Risk Level and Explainer
+  let levelName = "High Risk", levelColor = "#8A1C10", levelBg = "#FDE4E1", tierId = "tier-box-high";
+  let explanation = `A score of <b>${score}/100</b> indicates <b>High Risk Level</b>. Significant clauses heavily favor the other party (e.g. strict lock-in penalties, lack of deposit refund deadline, or one-sided exit terms), posing major financial exposure. Immediate negotiation is recommended before signing.`;
+
+  if (score <= 35) {
+    levelName = "Low Risk"; levelColor = "#0F4A2D"; levelBg = "#E3F3EA"; tierId = "tier-box-low";
+    explanation = `A score of <b>${score}/100</b> indicates <b>Low Risk Level</b>. The agreement is fairly balanced and adheres to standard commercial norms with minimal financial exposure. Safe to proceed with standard checks.`;
+  } else if (score <= 65) {
+    levelName = "Moderate Risk"; levelColor = "#7A2E0B"; levelBg = "#FDEBD3"; tierId = "tier-box-med";
+    explanation = `A score of <b>${score}/100</b> indicates <b>Moderate Risk Level</b>. While standard terms exist, there are notable one-sided clauses (such as excessive lock-in or unspecific repair duties) that should be negotiated before signing.`;
+  }
+
+  el("risklevelwrap").innerHTML = `<span class="risk-badge" style="background:${levelBg}; color:${levelColor};">${levelName} (${score}/100)</span>`;
+  el("explainer-title").innerHTML = `What does <b>${score}/100 (${levelName})</b> mean?`;
+  el("explainer-desc").innerHTML = explanation;
+  const activeBox = el(tierId);
+  if (activeBox) activeBox.classList.add("active-tier");
+
   const vcol = {SIGN:["#E3F3EA","#0F4A2D"], NEGOTIATE:["#FDEBD3","#7A2E0B"], "WALK AWAY":["#FDE4E1","#8A1C10"]}[R.verdict] || ["#EEE","#333"];
-  el("verdict").textContent = R.verdict; el("verdict").style.background = vcol[0]; el("verdict").style.color = vcol[1];
+  el("verdict").textContent = R.verdict || "NEGOTIATE";
+  el("verdict").style.background = vcol[0];
+  el("verdict").style.color = vcol[1];
 
   el("total").textContent = rs(E.total);
-  el("months").textContent = E.months_of_earnings ? `≈ ${E.months_of_earnings} months of your earnings` : "Worst case, from your agreement's numbers";
-  if (R.what_if_total != null && R.what_if_total < E.total)
-    el("whatif").textContent = `If the owner meets your must-haves: ${rs(R.what_if_total)} at risk.`;
+  el("months").textContent = E.months_of_earnings ? `≈ ${E.months_of_earnings} months of your earnings` : "Worst-case exposure based on agreement terms";
+  if (R.what_if_total != null && R.what_if_total < E.total) {
+    el("whatif").textContent = `If the owner accepts your must-haves: risk drops to ${rs(R.what_if_total)}.`;
+  }
 
   const cats = R.categories || [];
-  new Chart(el("cat"), { type:"bar",
-    data:{ labels:cats.map(c => c.name), datasets:[{ data:cats.map(c => c.score), backgroundColor:"#F08A24", borderRadius:6 }] },
-    options:{ indexAxis:"y", plugins:{ legend:{display:false}, tooltip:{ callbacks:{ afterLabel:c => cats[c.dataIndex].why } } },
-      scales:{ x:{ min:0, max:100, grid:{color:"#EEE"} }, y:{ grid:{display:false} } } } });
+  new Chart(el("cat"), {
+    type:"bar",
+    data:{
+      labels:cats.map(c => c.name),
+      datasets:[{ data:cats.map(c => c.score), backgroundColor:"#F08A24", borderRadius:6 }]
+    },
+    options:{
+      indexAxis:"y",
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ afterLabel:c => cats[c.dataIndex].why } } },
+      scales:{ x:{ min:0, max:100, grid:{color:"#EEE"} }, y:{ grid:{display:false} } }
+    }
+  });
 
   const items = (E.items || []).filter(i => !i.per_event);
-  new Chart(el("exp"), { type:"bar",
-    data:{ labels:items.map(i => (i.clause ? "Cl. " + i.clause + " · " : "") + i.label), datasets:[{ data:items.map(i => i.amount), backgroundColor:"#14213D", borderRadius:6 }] },
-    options:{ indexAxis:"y", plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => rs(c.raw) } } },
-      scales:{ x:{ ticks:{ callback:v => rs(v) }, grid:{color:"#EEE"} }, y:{ grid:{display:false}, ticks:{ autoSkip:false } } } } });
+  new Chart(el("exp"), {
+    type:"bar",
+    data:{
+      labels:items.map(i => (i.clause ? "Cl. " + i.clause + " · " : "") + i.label),
+      datasets:[{ data:items.map(i => i.amount), backgroundColor:"#14213D", borderRadius:6 }]
+    },
+    options:{
+      indexAxis:"y",
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => rs(c.raw) } } },
+      scales:{ x:{ ticks:{ callback:v => rs(v) }, grid:{color:"#EEE"} }, y:{ grid:{display:false}, ticks:{ autoSkip:false } } }
+    }
+  });
 
   for (const r of R.risks || []) {
     const tr = document.createElement("tr");
-    const cells = [r.clause, r.title, null, r.why_for_you];
+    const cells = [r.clause || "-", r.title, null, r.why_for_you];
     cells.forEach((v, i) => {
       const td = document.createElement("td");
-      if (i === 2) { const b = document.createElement("span"); b.className = "sev " + (r.severity || "low"); b.textContent = (r.severity || "").toUpperCase(); td.appendChild(b); }
-      else td.textContent = v ?? "";
+      if (i === 2) {
+        const b = document.createElement("span");
+        b.className = "sev " + (r.severity || "low");
+        b.textContent = (r.severity || "LOW").toUpperCase();
+        td.appendChild(b);
+      } else {
+        td.textContent = v ?? "";
+      }
       tr.appendChild(td);
     });
     el("risks").appendChild(tr);

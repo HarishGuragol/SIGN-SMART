@@ -49,6 +49,8 @@ def summary_line(ex):
 # ---------- Exposure (worst-case money at risk) ----------
 
 def exposure(ex, profile):
+    ex = ex or {}
+    profile = profile or {}
     rent = ex.get("monthly_rent") or 0
     dep = ex.get("deposit") or 0
     refs = ex.get("clause_refs") or {}
@@ -96,7 +98,59 @@ def exposure(ex, profile):
 
 # ---------- Must-haves ----------
 
+def risk_level(score):
+    """Returns level name, badge class, colors, and plain-English explanation."""
+    if score is None:
+        score = 50
+    if score <= 35:
+        return {
+            "score": score,
+            "level": "Low Risk",
+            "badge": "low",
+            "color": "#0F4A2D",
+            "bg": "#E3F3EA",
+            "summary": "Fair and balanced terms. Standard legal protections in place.",
+            "action": "Safe to sign with minimal adjustments."
+        }
+    elif score <= 65:
+        return {
+            "score": score,
+            "level": "Moderate Risk",
+            "badge": "medium",
+            "color": "#7A2E0B",
+            "bg": "#FDEBD3",
+            "summary": "Several one-sided clauses found (such as deposit refund delays or notice terms).",
+            "action": "Negotiation recommended to protect your rights before signing."
+        }
+    else:
+        return {
+            "score": score,
+            "level": "High Risk",
+            "badge": "high",
+            "color": "#8A1C10",
+            "bg": "#FDE4E1",
+            "summary": "Severe financial exposure or heavily one-sided clauses (e.g. lock-in penalty or non-refundable deposit).",
+            "action": "Do NOT sign as-is. Negotiate essential must-haves or walk away."
+        }
+
+
+def derive_score(prof, checks, exp, profile):
+    """Risk score from the actual agreement, used when the agent gives no valid number
+    (so the score never falls back to one fixed value)."""
+    weights = {"high": 12, "medium": 6, "low": 2}
+    score = 10 + sum(weights.get((r.get("severity") or "").lower(), 4) for r in prof.get("risks", []))
+    score += 4 * sum(1 for c in checks if not c["met"])
+    earn = (profile or {}).get("monthly_earnings")
+    if earn and exp.get("total"):
+        score += min(20, int(exp["total"] / earn * 2))
+    elif exp.get("total"):
+        score += min(15, int(exp["total"] / 50000))
+    return max(5, min(97, score))
+
+
 def default_must_haves(ex, profile):
+    ex = ex or {}
+    profile = profile or {}
     mh = []
     dep = ex.get("deposit")
     if dep:

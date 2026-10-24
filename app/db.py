@@ -10,6 +10,7 @@ from . import config
 _lock = threading.RLock()
 _conn = sqlite3.connect(config.DATA_DIR / "signsmart.db", check_same_thread=False)
 _conn.execute("CREATE TABLE IF NOT EXISTS sessions (phone TEXT PRIMARY KEY, data TEXT NOT NULL)")
+_conn.execute("CREATE TABLE IF NOT EXISTS user_profiles (phone TEXT PRIMARY KEY, profile_data TEXT NOT NULL)")
 _conn.commit()
 
 # Per-phone locks so two messages from one user never race
@@ -21,7 +22,30 @@ def phone_lock(phone):
         return _phone_locks.setdefault(phone, threading.Lock())
 
 
+def save_user_profile(phone, profile_dict):
+    """Persist the user's business profile across sessions so we never re-ask."""
+    if not profile_dict:
+        return
+    with _lock:
+        existing = get_user_profile(phone)
+        existing.update({k: v for k, v in profile_dict.items() if v is not None})
+        _conn.execute(
+            "INSERT INTO user_profiles(phone, profile_data) VALUES(?, ?) ON CONFLICT(phone) DO UPDATE SET profile_data=excluded.profile_data",
+            (phone, json.dumps(existing)),
+        )
+        _conn.commit()
+
+
+def get_user_profile(phone):
+    """Retrieve persisted profile (income, upfront capacity, etc.) for this phone."""
+    with _lock:
+        row = _conn.execute("SELECT profile_data FROM user_profiles WHERE phone=?", (phone,)).fetchone()
+    return json.loads(row[0]) if row else {}
+
+
 def new_session(phone):
+    # Retain known profile context across sessions / new agreements
+    saved_prof = get_user_profile(phone)
     return {
         "phone": phone,
         "token": secrets.token_urlsafe(12),  # used in dashboard + payment links
@@ -30,13 +54,14 @@ def new_session(phone):
         "files": [],
         "revised_files": [],
         "extracted": None,
-        "profile": {},
+        "profile": dict(saved_prof),  # Pre-populate with saved context!
+        "has_saved_profile": bool(saved_prof.get("monthly_earnings") or saved_prof.get("stay_months")),
         "must_haves": [],
         "report": None,
         "paid": False,
         "payment_link_id": None,
         "after_pay": None,
-        "evidence_deposit": None,
+        "evidence_deposit": saved_prof.get("evidence_deposit"),
         "negotiation": None,
         "tone": "friendly",
         "owner_phone": None,

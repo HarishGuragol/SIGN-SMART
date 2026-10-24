@@ -6,3 +6,9 @@ data/
 .DS_Store
 *.log
 node_modules/
+*.png
+screenshots/
+final_submission_screenshots/
+flowchart_screenshots/
+demo/screenshots/
+

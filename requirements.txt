@@ -6,3 +6,4 @@ python-dotenv>=1.0
 agenticorg
 pypdf>=4.0
 anthropic>=0.40
+qrcode[pil]>=7.4

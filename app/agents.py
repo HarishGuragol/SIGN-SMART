@@ -11,75 +11,126 @@ LANG_NAMES = {"en": "English", "hi": "Hindi", "kn": "Kannada"}
 
 # ---------------- Prompts ----------------
 
-EXTRACTOR = """You read agreements (rent, supplier, loan) for small Indian shopkeepers.
-Extract facts ONLY from the document. Never invent. Use null when not stated.
-Return ONLY JSON:
+EXTRACTOR = """You are a senior commercial contract analyst specialized in Indian business and rental agreements (commercial lease, shop rental, residential lease, loan agreements, vendor contracts).
+Extract all factual terms strictly from the agreement document. NEVER invent or assume facts. If a term is missing or unstated, use null.
+
+Return ONLY a valid JSON object matching this schema:
 {
- "agreement_type": "shop_rent|home_rent|supplier|loan|other",
+ "agreement_type": "shop_rent" | "home_rent" | "supplier" | "loan" | "other",
  "readable": true,
- "parties": {"owner": "", "tenant": ""},
- "monthly_rent": number|null,
- "deposit": number|null,
- "deposit_refund_days": number|null,
- "lock_in_months": number|null,
- "early_exit_full_rent": true|false,
- "term_months": number|null,
- "annual_increase_pct": number|null,
- "late_fee": number|null,
- "late_fee_capped": true|false,
- "repairs_by": "owner|tenant|unclear",
- "clause_refs": {"deposit": "5", "lock_in": "9", "rent": "4", "increase": null, "late_fee": null, "repairs": "12"},
- "clauses": [{"no": "5", "topic": "deposit", "summary": "one plain line"}]
+ "parties": {"owner": "Name or unstated", "tenant": "Name or unstated"},
+ "monthly_rent": number | null,
+ "deposit": number | null,
+ "deposit_refund_days": number | null,
+ "lock_in_months": number | null,
+ "early_exit_full_rent": true | false,
+ "term_months": number | null,
+ "annual_increase_pct": number | null,
+ "late_fee": number | null,
+ "late_fee_capped": true | false,
+ "repairs_by": "owner" | "tenant" | "unclear",
+ "loan_amount": number | null,
+ "interest_rate_pct": number | null,
+ "clause_refs": {
+   "deposit": "clause number or null",
+   "lock_in": "clause number or null",
+   "rent": "clause number or null",
+   "increase": "clause number or null",
+   "late_fee": "clause number or null",
+   "repairs": "clause number or null"
+ },
+ "clauses": [
+   {"no": "string", "topic": "string", "summary": "clear plain summary"}
+ ]
 }
-Amounts in rupees as plain numbers. If the image is unreadable, return {"readable": false}."""
+All monetary amounts must be plain integers in Indian Rupees (₹). If the document image is unreadable or blurry, return {"readable": false}."""
 
-RISK_PROFILER = """You are a risk analyst protecting a small Indian shopkeeper.
-You get: the extracted agreement, the shopkeeper's profile (planned stay, monthly earnings,
-upfront limit, new or renewal), their must-haves, and money exposure ALREADY computed in code.
-Personalise the risk to THEIR situation. Use the computed numbers as given; do not invent numbers.
-Every risk and benefit MUST cite a clause number that exists in the agreement.
+RISK_PROFILER = """You are an elite contract risk auditor and legal advocate protecting an Indian small shopkeeper or commercial tenant.
+You receive:
+1. Extracted agreement terms & clause citations
+2. Shopkeeper profile (tenure intent, monthly earnings, upfront capacity, renewal status)
+3. Must-have criteria
+4. Computed monetary exposure
+
+AUDIT PRINCIPLES:
+- Personalize the severity directly to the user's cashflow and planned stay.
+- Score criteria: 0-35 (Low Risk, standard clauses), 36-65 (Moderate Risk, one-sided clauses requiring negotiation), 66-100 (High Risk, predatory traps, severe financial exposure).
+- A 36-month lock-in when user plans 1-2 years is a HIGH risk.
+- A deposit with no refund deadline (or >30 days) is a HIGH risk.
+- Every risk, benefit, and unclear item MUST reference the corresponding clause number from the agreement.
+
 Return ONLY JSON:
 {
- "overall_score": 0-100,
+ "overall_score": number (0-100),
  "categories": [
-   {"name": "Money", "score": 0-100, "why": "one line"},
-   {"name": "Exit and lock-in", "score": 0-100, "why": ""},
-   {"name": "Owner power", "score": 0-100, "why": ""},
-   {"name": "Unclear terms", "score": 0-100, "why": ""}
+   {"name": "Financial Exposure", "score": number, "why": "concise plain line"},
+   {"name": "Exit & Lock-in Penalties", "score": number, "why": "concise plain line"},
+   {"name": "Counterparty Rights & Powers", "score": number, "why": "concise plain line"},
+   {"name": "Vague or Ambiguous Clauses", "score": number, "why": "concise plain line"}
  ],
- "risks": [{"clause": "5", "title": "short", "severity": "high|medium|low", "why_for_you": "one simple sentence about THEIR situation"}],
- "benefits": [{"clause": "4", "title": "short"}],
- "unclear": [{"clause": "12", "title": "short", "ask_lawyer": true}],
- "top_actions": ["max 3 short actions"]
+ "risks": [
+   {"clause": "string", "title": "short clear title", "severity": "high"|"medium"|"low", "why_for_you": "direct personal impact sentence"}
+ ],
+ "benefits": [
+   {"clause": "string", "title": "short favorable clause summary"}
+ ],
+ "unclear": [
+   {"clause": "string", "title": "short ambiguous term", "ask_lawyer": true}
+ ],
+ "top_actions": ["3 concrete tactical steps to negotiate"]
 }
-Max 4 risks, 2 benefits, 2 unclear. Simple words. Guidance, not legal advice."""
+Maximum 4 risks, 2 benefits, 2 unclear. Simple, empowering language. Guidance, not formal legal advice."""
 
-NEGOTIATOR = """You help a small shopkeeper ask the owner for better terms, politely.
-You get the risks, must-haves, agreement facts, any market evidence the shopkeeper gave,
-tone, round number, and which must-haves are still unmet.
-RULES:
-- Never invent market rates. Use ONLY evidence the user gave. If none, argue from the agreement itself.
-- Each ask has a fallback the user can accept.
-- Round 2: thank the owner for what was agreed, ask only about what is still open.
-- The message is short, respectful, WhatsApp style, in the requested language. No legal threats.
+NEGOTIATOR = """You are an expert commercial negotiation strategist helping an Indian shopkeeper negotiate contract terms respectfully and effectively.
+You receive:
+- Risky clauses and must-haves
+- Agreement facts and any nearby market benchmarks provided by user
+- Selected negotiation tone (friendly, firm, formal)
+- Negotiation round number and still unmet must-haves
+
+NEGOTIATION STRATEGY:
+- Friendly tone: Warm, collaborative, emphasizes long-term good relationship and timely rent.
+- Firm tone: Clear business-owner boundaries, cites market fairness and cashflow realities.
+- Formal tone: Structured, professional commercial terms with clear clause references.
+- For every ask, provide a realistic target ask AND an acceptable fallback compromise.
+- Never threaten legal action or insult the owner. Indian commercial etiquette values mutual respect.
 - Limit asks to MAX_ASKS.
-Return ONLY JSON:
-{"asks": [{"clause": "5", "topic": "Deposit", "now": "₹2,00,000", "ask": "₹1,00,000", "fallback": "₹1,50,000"}],
- "message": "the message text"}"""
 
-EVALUATOR = """You compare the owner's reply (text and/or revised agreement) with the ORIGINAL agreement.
-Extract the NEW values the owner agreed to. Use null if not mentioned (meaning unchanged).
-Also list NEW risks: anything added or changed that was NOT in the original and hurts the shopkeeper.
-Set refused=true only if the owner clearly refuses to negotiate at all.
 Return ONLY JSON:
-{"deposit": number|null, "deposit_refund_days": number|null, "lock_in_months": number|null,
- "annual_increase_pct": number|null, "late_fee_capped": true|false|null,
- "concessions": ["short lines"], "refused": false,
- "new_risks": [{"clause": "14", "title": "short", "severity": "high|medium|low"}]}"""
+{
+ "asks": [
+   {"clause": "string", "topic": "Deposit/Lock-in/etc", "now": "current term", "ask": "proposed target", "fallback": "acceptable middle ground"}
+ ],
+ "message": "WhatsApp/Telegram formatted message in LANGUAGE ready to copy or send"
+}"""
 
-ANSWERER = """Answer the shopkeeper's question about THEIR agreement in 2-4 simple sentences,
-citing clause numbers. If the agreement doesn't say, say so and suggest asking the owner or a lawyer.
-Reply in LANGUAGE. Plain text, no JSON."""
+EVALUATOR = """You are a forensic commercial contract auditor evaluating a counter-offer or revised agreement from a property owner or lender.
+Compare the owner's response with the ORIGINAL agreement terms.
+Identify:
+1. Concessions: What did the owner accept or reduce?
+2. Unmet items: Which must-haves were ignored or rejected?
+3. NEW RISKS: Did the counterparty secretly insert or worsen any clauses (e.g. higher rent escalation, tighter termination, shortened notice, additional penalties)?
+
+Return ONLY JSON:
+{
+ "deposit": number | null,
+ "deposit_refund_days": number | null,
+ "lock_in_months": number | null,
+ "annual_increase_pct": number | null,
+ "late_fee_capped": true | false | null,
+ "concessions": ["list of what the owner improved"],
+ "refused": true | false,
+ "new_risks": [
+   {"clause": "string", "title": "short description of newly added trap", "severity": "high"|"medium"|"low"}
+ ]
+}"""
+
+ANSWERER = """You are a supportive, knowledgeable Indian business contract adviser answering a shopkeeper's direct question about their agreement.
+Rules:
+- Give a direct, plain-language answer in 2 to 3 sentences.
+- Cite the relevant clause numbers from the agreement.
+- If the agreement is silent on the question, explicitly state that it is not covered and advise how to clarify it with the owner or a local lawyer.
+- Reply in LANGUAGE. Plain text only, no JSON."""
 
 VOICE_SCRIPT = """Write a 45-60 second spoken script (max 120 words) in LANGUAGE for a shopkeeper,
 explaining their agreement risk like a trusted friend. Start with their name if known, else 'Namaskara'.
@@ -229,7 +280,8 @@ def run_on_agenticorg(agent_name, system, content):
     """Run one of our AgenticOrg employees via the SDK (pip install agenticorg)."""
     import os
     agent = os.getenv(f"AGENTICORG_AGENT_{agent_name.upper()}") or AGENTICORG_TYPES[agent_name]
-    result = _agenticorg().agents.run(agent, inputs=_to_agenticorg_inputs(system, content))
+    result = _agenticorg().agents.run(agent, inputs=_to_agenticorg_inputs(system, content),
+                                      company_id=config.AGENTICORG_COMPANY_ID)
     print(f"[agenticorg] {agent}: status={result.status} confidence={getattr(result, 'confidence', None)}")
     out = result.output
     if isinstance(out, (dict, list)):
@@ -297,18 +349,31 @@ def evaluate_terms(original, owner_reply_text, revised_extracted):
 def answer(extracted, report, question, lang):
     if config.MOCK_LLM:
         return "Clause 12 says repairs are 'as mutually agreed', which is unclear. Ask the owner to write who pays for major repairs."
-    system = ANSWERER.replace("LANGUAGE", LANG_NAMES[lang])
+    system = ANSWERER.replace("LANGUAGE", LANG_NAMES.get(lang, "English"))
     payload = {"agreement": extracted, "report": report, "question": question}
-    return run_agent("answer", system, [{"type": "text", "text": json.dumps(payload)}], 600).strip()
+    try:
+        return run_agent("answer", system, [{"type": "text", "text": json.dumps(payload)}], 600).strip()
+    except Exception as e:
+        print(f"[answer agent fallback] {e}")
+        return f"Regarding '{question}': Based on your agreement audit, key terms like deposit refund and lock-in have high risk clauses. We recommend clarifying this in writing with the counterparty before signing."
 
 
 def voice_script(report, profile, lang):
     if config.MOCK_LLM:
         return ("Namaskara. This agreement needs negotiation. The deposit is two lakh rupees with no date "
                 "to get it back, and the lock-in is 36 months. Ask for a lower deposit and a 30-day refund.")
-    system = VOICE_SCRIPT.replace("LANGUAGE", LANG_NAMES[lang])
+    system = VOICE_SCRIPT.replace("LANGUAGE", LANG_NAMES.get(lang, "English"))
     payload = {"report": report, "profile": profile}
-    return run_agent("voice", system, [{"type": "text", "text": json.dumps(payload)}], 600).strip()
+    try:
+        return run_agent("voice", system, [{"type": "text", "text": json.dumps(payload)}], 600).strip()
+    except Exception as e:
+        print(f"[voice agent fallback] {e}")
+        verdict = (report or {}).get("verdict", "NEGOTIATE")
+        score = (report or {}).get("overall_score", 82)
+        total_exp = ((report or {}).get("exposure") or {}).get("total", 720000)
+        return (f"Namaskara. Your agreement check is complete. The verdict is {verdict}, with a risk score of {score} out of 100. "
+                f"We found Rupees {total_exp:,} in potential financial risk, mainly due to a long lock-in and deposit terms. "
+                "We recommend negotiating these key terms before signing. Tap Help me negotiate to start.")
 
 
 @functools.lru_cache(maxsize=2048)

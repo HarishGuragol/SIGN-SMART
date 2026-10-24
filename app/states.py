@@ -21,6 +21,17 @@ WELCOME = (
 
 # ---------------- helpers ----------------
 
+def detect_file_type(data, ctype):
+    ctype = (ctype or "").lower()
+    if data.startswith(b"%PDF") or "pdf" in ctype:
+        return "application/pdf"
+    if data.startswith(b"\x89PNG") or "png" in ctype:
+        return "image/png"
+    if data.startswith(b"RIFF") and b"WEBP" in data[:16]:
+        return "image/webp"
+    return "image/jpeg"
+
+
 def say(s, text, media_url=None, translate=True):
     body = agents.translate(text, s.get("lang", "en")) if translate else text
     return channel.send(s["phone"], body, media_url=media_url)
@@ -28,11 +39,13 @@ def say(s, text, media_url=None, translate=True):
 
 def save_files(s, media, key="files"):
     for data, ctype in media:
-        if ctype not in EXT:
+        if not data:
             continue
-        path = config.UPLOAD_DIR / f"{s['token']}_{key}_{len(s[key])}.{EXT[ctype]}"
+        valid_ctype = detect_file_type(data, ctype)
+        ext = EXT.get(valid_ctype, "jpg")
+        path = config.UPLOAD_DIR / f"{s['token']}_{key}_{len(s[key])}.{ext}"
         path.write_bytes(data)
-        s[key].append([str(path), ctype])
+        s[key].append([str(path), valid_ctype])
 
 
 def delete_files(s):
@@ -67,8 +80,6 @@ def handle(phone, text, media):
     if text.startswith("/start deal_"):
         owner_join(phone, text.split("deal_", 1)[1].strip())
         return
-    if text == "/start":
-        text = "menu"
 
     # Is this the OWNER replying to a message we sent?
     tenant = db.find_by_owner(phone, OWNER_WAIT_STATES)
@@ -82,13 +93,73 @@ def handle(phone, text, media):
     with db.phone_lock(phone):
         s = db.get(phone)
         low = text.lower()
-        if low in ("menu", "restart", "reset") or (s["state"] == "DONE" and low in ("hi", "hello")):
+
+        # Handle clean restart commands
+        if (low in ("/start", "menu", "restart", "reset") or (s.get("state") == "DONE" and low in ("hi", "hello", "start"))) and not media:
             delete_files(s)
             s = db.new_session(phone)
+            channel.send(s["phone"], WELCOME)
+            s["state"] = "LANG"
+            db.save(s)
+            return
+
+        # While waiting for payment, "hi"/"continue" must never unlock the pack by themselves.
+        # The backend verifies the payment and advances the flow.
+        if s.get("state") == "AWAIT_PAYMENT" and low in (
+                "hi", "hello", "hey", "start", "/continue", "continue", "next") and not media:
+            verify_payment(s, explicit=False)
+            db.save(s)
+            return
+
+        # /continue command to smoothly unblock or advance at any point
+        if low in ("/continue", "continue", "next"):
+            if s.get("state") == "UPSELL":
+                ask_send_choice(s)
+                db.save(s)
+                return
+            elif s.get("state") == "SELF_SENT":
+                ask_reply_menu(s)
+                db.save(s)
+                return
+            elif s.get("state") == "AWAIT_REPLY":
+                say(s, "When the owner replies:\n1 Type what they said\n2 Send the revised agreement\n3 Not yet, remind me later\n4 Owner refused")
+                db.save(s)
+                return
+
+        # /pay or /unlock command
+        if low in ("/pay", "pay", "unlock"):
+            s["after_pay"] = "tone"
+            start_payment(s)
+            db.save(s)
+            return
+
+        # If user uploads agreement document directly during START or LANG
+        if media and s.get("state") in ("START", "LANG"):
+            s["state"] = "COLLECT_DOC"
+            if not s.get("lang"):
+                s["lang"] = "en"
+
+        # User uploaded a NEW agreement while in a later state (REPORT, DONE, DECIDE, etc.)
+        # Reuse their existing profile context without re-asking income questions!
+        elif media and s.get("state") not in ("COLLECT_DOC", "REVISED"):
+            delete_files(s)
+            s["files"] = []
+            s["extracted"] = None
+            s["report"] = None
+            s["evaluation"] = None
+            s["negotiation"] = None
+            s["round"] = 0
+            save_files(s, media)
+            say(s, f"📄 Got your new agreement page! Send more pages, or tap below to check it:\n1 Start reading")
+            s["state"] = "COLLECT_DOC"
+            db.save(s)
+            return
+
         if low == "help" and s["state"] != "START":
             say(s, "Reply with the number of your choice. Reply *menu* to start over.")
             db.save(s)
             return
+
         handler = HANDLERS.get(s["state"], h_start)
         try:
             handler(s, text, media)
@@ -120,8 +191,19 @@ def h_collect_doc(s, text, media):
         say(s, f"Got {len(s['files'])} page(s). Send more pages, or tap below.\n1 Start reading")
         return
     if text == "1" and s["files"]:
+        # Guard: drop any stale paths that no longer exist (e.g. after a /start reset)
+        s["files"] = [[p, c] for p, c in s["files"] if os.path.exists(p)]
+        if not s["files"]:
+            say(s, "Please send a photo or PDF of the agreement.")
+            return
         say(s, "Reading your agreement… (about 60 seconds)")
-        ex = agents.extract(s["files"])
+        try:
+            ex = agents.extract(s["files"])
+        except Exception as e:
+            print(f"[extract error] {e}")
+            say(s, "I had trouble reading that. Please send the photo again or try a clearer image.")
+            s["files"] = []
+            return
         if not ex.get("readable", True):
             s["files"] = []
             say(s, "I couldn't read that clearly. Please send a sharper photo in good light, or a PDF.")
@@ -155,34 +237,96 @@ def h_fix_type(s, text, media):
 # ---------------- Risk Profiler questions ----------------
 
 def profile_questions(s):
+    """Minimal, high-impact dynamic questions based on agreement type (max 1-2 questions)."""
     ex = s["extracted"] or {}
-    qs = [
-        {"key": "stay_months", "q": "How long do you plan to keep this agreement?",
-         "opts": [("Less than 1 year", 9), ("1 to 3 years", 24), ("More than 3 years", 48), ("Skip", None)]},
-        {"key": "monthly_earnings",
-         "q": "Roughly what do you earn per month after expenses?\n_Only used to show risk in months of income. Deleted after this chat._",
-         "opts": [("Under ₹30,000", 20000), ("₹30,000 to ₹60,000", 45000), ("Over ₹60,000", 80000), ("Skip", None)]},
-    ]
-    dep, rent = ex.get("deposit"), ex.get("monthly_rent")
-    if dep:
-        opts = [(f"{calc.rs(dep)} is fine", dep)]
-        if rent:
-            for m in (6, 4):
-                if rent * m < dep:
-                    opts.append((f"{calc.rs(rent * m)} ({m} months of rent)", rent * m))
-        opts.append(("Type an amount", "TYPE"))
-        months = f" ({round(dep / rent)} months of rent)" if rent else ""
-        qs.append({"key": "upfront_limit",
-                   "q": f"The deposit is {calc.rs(dep)}{months}. What's the most you can pay upfront?",
-                   "opts": opts})
-    qs.append({"key": "is_renewal", "q": "Is this new, or a renewal?",
-               "opts": [("New", False), ("Renewal", True), ("Skip", None)]})
-    return qs
+    atype = ex.get("agreement_type", "shop_rent")
+    dep = ex.get("deposit")
+    rent = ex.get("monthly_rent")
+    lock_in = ex.get("lock_in_months")
+    loan_amt = ex.get("loan_amount")
+    qs = []
+
+    if atype in ("shop_rent", "home_rent"):
+        # Q1: Upfront deposit capacity if deposit exists
+        if dep:
+            opts = [(f"{calc.rs(dep)} is fine", dep)]
+            if rent and dep > (rent * 3):
+                opts.append((f"{calc.rs(int(dep * 0.6))} (Lower deposit)", int(dep * 0.6)))
+            opts.append(("Type an amount", "TYPE"))
+            opts.append(("Skip", None))
+            qs.append({
+                "key": "upfront_limit",
+                "q": f"The deposit is {calc.rs(dep)}. What is the maximum you can pay upfront?",
+                "opts": opts
+            })
+        # Q2: Planned stay duration
+        qs.append({
+            "key": "stay_months",
+            "q": f"The agreement specifies {lock_in or 11}-month lock-in. How long do you plan to stay?",
+            "opts": [("Under 1 year", 9), ("1 to 2 years", 24), ("3+ years", 48), ("Skip", None)]
+        })
+
+    elif atype == "loan":
+        # Q1: Monthly earnings context
+        qs.append({
+            "key": "monthly_earnings",
+            "q": "Roughly what are your monthly net business earnings?",
+            "opts": [("Under ₹30,000", 20000), ("₹30,000 to ₹60,000", 45000), ("Over ₹60,000", 80000), ("Skip", None)]
+        })
+        # Q2: Max EMI affordability
+        qs.append({
+            "key": "upfront_limit",
+            "q": "What is the maximum monthly EMI you can comfortably afford?",
+            "opts": [("₹5,000 / month", 5000), ("₹10,000 / month", 10000), ("Type an amount", "TYPE"), ("Skip", None)]
+        })
+
+    elif atype == "supplier":
+        # Q1: Payment/Credit terms
+        qs.append({
+            "key": "stay_months",
+            "q": "What credit payment window do you need for vendor orders?",
+            "opts": [("15 days credit", 15), ("30 days credit", 30), ("45 days credit", 45), ("Skip", None)]
+        })
+
+    else:
+        # Generic single question for other contracts
+        qs.append({
+            "key": "stay_months",
+            "q": "How long do you plan to be committed to this agreement?",
+            "opts": [("Under 1 year", 9), ("1 to 3 years", 24), ("Long term (3+ yrs)", 48), ("Skip", None)]
+        })
+
+    return qs[:2]  # Strict maximum of 2 dynamic questions
+
+
+def _mark_answered(s, key):
+    """Remember that the user already answered (or skipped) this question, so it's never re-asked."""
+    ans = s["profile"].setdefault("_answered", [])
+    if key not in ans:
+        ans.append(key)
 
 
 def ask_profile(s, i):
+    # Check if we already have the user's business profile in context (from this or previous agreements)
+    prof = s.get("profile") or {}
+    has_context = bool(prof.get("_answered") or prof.get("monthly_earnings")
+                       or prof.get("stay_months") or prof.get("upfront_limit"))
+    if has_context and s.get("state") not in ("PROFILE", "TYPE_AMOUNT"):
+        lines = ["🧠 *Profile Context Found*"]
+        if prof.get("monthly_earnings"):
+            lines.append(f"• Net earnings: ₹{prof['monthly_earnings']:,}/mo")
+        if prof.get("stay_months"):
+            lines.append(f"• Planned tenure: {prof['stay_months']} months")
+        if prof.get("upfront_limit"):
+            lines.append(f"• Max upfront capacity: ₹{prof['upfront_limit']:,}")
+        lines.append("\n✅ Using your saved details. (Reply *menu* to start over.)")
+        say(s, "\n".join(lines))
+        propose_must_haves(s)
+        return
+
     qs = profile_questions(s)
     if i >= len(qs):
+        db.save_user_profile(s["phone"], s["profile"])
         propose_must_haves(s)
         return
     q = qs[i]
@@ -192,6 +336,16 @@ def ask_profile(s, i):
     s["state"] = "PROFILE"
 
 
+def h_confirm_saved_profile(s, text, media):
+    if text == "1":
+        propose_must_haves(s)
+    elif text == "2":
+        s["profile"] = {}
+        ask_profile(s, 0)
+    else:
+        say(s, "1 Use saved profile for this agreement\n2 Update my details")
+
+
 def h_profile(s, text, media):
     q = profile_questions(s)[s["pq"]]
     if not text.isdigit() or not (1 <= int(text) <= len(q["opts"])):
@@ -199,10 +353,12 @@ def h_profile(s, text, media):
         return
     val = q["opts"][int(text) - 1][1]
     if val == "TYPE":
-        say(s, "Type the most you can pay, e.g. 1.5 lakh or 150000.")
+        say(s, "Type the amount, e.g. 1.5 lakh or 150000.")
         s["state"] = "TYPE_AMOUNT"
         return
     s["profile"][q["key"]] = val
+    _mark_answered(s, q["key"])
+    db.save_user_profile(s["phone"], s["profile"])
     ask_profile(s, s["pq"] + 1)
 
 
@@ -212,6 +368,8 @@ def h_type_amount(s, text, media):
         say(s, "Please type an amount, e.g. 150000 or 1.5 lakh.")
         return
     s["profile"]["upfront_limit"] = amt
+    _mark_answered(s, "upfront_limit")
+    db.save_user_profile(s["phone"], s["profile"])
     ask_profile(s, s["pq"] + 1)
 
 
@@ -244,39 +402,52 @@ def h_mh_edit(s, text, media):
 
 def run_report(s):
     ex, profile = s["extracted"], s["profile"]
-    say(s, "Checking risks for your situation…")
+    say(s, "Analyzing agreement clauses and computing risk exposure…")
     exp = calc.exposure(ex, profile)
     prof = agents.risk_profile(ex, profile, s["must_haves"], exp, s.get("must_have_note"))
     checks = calc.check_must_haves(s["must_haves"], ex)
     verdict = calc.report_verdict(checks, prof.get("risks", []))
-    s["report"] = {**prof, "verdict": verdict, "exposure": exp, "checks": checks,
+    score = calc.derive_score(prof, checks, exp, profile)  # rule-based, not the agent's raw number
+    lvl = calc.risk_level(score)
+
+    s["report"] = {**prof, "overall_score": score, "verdict": verdict, "exposure": exp, "checks": checks,
                    "what_if_total": calc.what_if(ex, profile, profile.get("upfront_limit"),
                                                  profile.get("stay_months"))}
 
-    lines = [f"*{verdict}* · Risk {prof.get('overall_score', '-')}/100", ""]
-    for r in prof.get("risks", [])[:3]:
-        dot = "🔴" if r.get("severity") == "high" else "🟠"
-        lines.append(f"{dot} {r['title']} (Clause {r['clause']})")
-    for b in prof.get("benefits", [])[:1]:
-        lines.append(f"🟢 {b['title']} (Clause {b['clause']})")
-    for u in prof.get("unclear", [])[:1]:
-        lines.append(f"❓ Unclear: {u['title']} (Clause {u['clause']}). Worth asking a lawyer.")
-    if exp["total"]:
-        worst = f"\nWorst-case money at risk: *{calc.rs(exp['total'])}*"
-        if exp["months_of_earnings"]:
-            worst += f" ≈ {exp['months_of_earnings']} months of your earnings"
+    # Clean chat summary — full risk details live on the dashboard
+    lines = [
+        f"📋 *Agreement Check Complete*",
+        f"",
+        f"• *Verdict:* *{verdict}*",
+        f"• *Risk Score:* *{score}/100* ({lvl['level']})",
+    ]
+    if exp.get("total"):
+        worst = f"• *Money at Risk:* *{calc.rs(exp['total'])}*"
+        if exp.get("months_of_earnings"):
+            worst += f" (≈ {exp['months_of_earnings']} months of earnings)"
         lines.append(worst)
+
+    dash_url = dashboard_url(s)
+    lines.extend([
+        f"",
+        f"📊 *Full Breakdown on Dashboard:*",
+        f"Clause analysis, risk charts & what-if numbers have been compiled into your private dashboard:",
+        f"{dash_url}",
+        f"",
+        f"1 Help me negotiate",
+        f"2 Ask a question",
+        f"3 🔊 Play voice summary",
+    ])
     say(s, "\n".join(lines))
 
     try:
         script = agents.voice_script(s["report"], profile, s["lang"])
         url = voice.tts(script)
         if url:
-            say(s, "🔊 Listen to your risk explained:", media_url=url)
+            say(s, "🔊 Here is your spoken risk summary:", media_url=url)
     except Exception as e:
         print(f"[voice skipped] {e}")
 
-    say(s, f"📊 Your full risk dashboard: {dashboard_url(s)}\n\n1 Help me negotiate\n2 Ask a question")
     s["state"] = "REPORT"
 
 
@@ -288,8 +459,16 @@ def h_report(s, text, media):
     elif text == "2":
         say(s, "Type your question about the agreement.")
         s["state"] = "ASK_Q"
+    elif text == "3":
+        script = agents.voice_script(s["report"], s["profile"], s["lang"])
+        url = voice.tts(script)
+        if url:
+            say(s, "🔊 Spoken risk summary:", media_url=url)
+        else:
+            say(s, script)
+        say(s, "1 Help me negotiate\n2 Ask a question\n3 🔊 Play voice summary again")
     else:
-        say(s, "1 Help me negotiate\n2 Ask a question")
+        say(s, "1 Help me negotiate\n2 Ask a question\n3 🔊 Play voice summary")
 
 
 def h_ask_q(s, text, media):
@@ -339,17 +518,30 @@ def h_upsell(s, text, media):
 
 def start_payment(s):
     link = payments.create_link(s)
-    say(s, f"Pay securely via Pine Labs (₹{config.PRICE_RS}):\n{link}\n\n"
-           f"I'll continue as soon as it's done.\n1 I've paid\n2 Skip, continue free")
+    mode_name = "UPI / GPay" if config.PINELABS_MODE == "upi" else "test mode"
+    say(s, f"💳 *Unlock Full Negotiation Pack (₹{config.PRICE_RS})*\n\n"
+           f"Pay via {mode_name} using this secure link:\n{link}\n\n"
+           f"Once paid, tap below:\n1 I've paid\n2 Skip, continue free")
     s["state"] = "AWAIT_PAYMENT"
+
+
+def verify_payment(s, explicit=True):
+    """Advance the flow only if the backend confirms payment.
+
+    explicit=True  -> user tapped "I've paid": poll the gateway (payments.check_status).
+    explicit=False -> user just typed hi/continue: never unlock; payment is confirmed by the
+                      backend (webhook / confirm page calling on_paid), so just remind them.
+    """
+    if explicit and payments.check_status(s):
+        on_paid(s)
+    else:
+        say(s, "I haven't received your payment yet. Please complete it using the link above, "
+               "and I'll continue automatically once it's confirmed.\n1 I've paid\n2 Skip, continue free")
 
 
 def h_await_payment(s, text, media):
     if text == "1":
-        if payments.check_status(s):
-            on_paid(s)
-        else:
-            say(s, "Not received yet. Try again in a minute.\n1 I've paid\n2 Skip, continue free")
+        verify_payment(s)
     elif text == "2":
         if s.get("after_pay") == "eval":
             ask_decide_free(s)
@@ -360,11 +552,11 @@ def h_await_payment(s, text, media):
 
 
 def on_paid(s):
-    """Called from the payment webhook or after 'I've paid'."""
-    if s.get("paid") and s["state"] != "AWAIT_PAYMENT":
-        return
+    """Called from the payment webhook, confirm page, or after 'I've paid'."""
+    if s.get("paid") and s.get("state") != "AWAIT_PAYMENT":
+        return  # already processed (duplicate webhook / confirm page reload)
     s["paid"] = True
-    say(s, "Payment received ✅ Thank you!")
+    say(s, "Payment received ✅ Thank you! Your full negotiation pack is unlocked.")
     if s.get("after_pay") == "eval":
         evaluate(s)
     else:
@@ -535,7 +727,6 @@ def h_await_reply(s, text, media):
 
 def h_type_reply(s, text, media):
     s["owner_reply"] = text
-    s["revised_extracted"] = None
     evaluate_entry(s)
 
 
@@ -595,9 +786,12 @@ def h_eval_gate(s, text, media):
 
 
 def evaluate(s):
-    say(s, "Comparing with the original agreement…")
-    upd = agents.evaluate_terms(s["extracted"], s.get("owner_reply"), s.get("revised_extracted"))
-    terms = calc.merge_terms(s["extracted"], s.get("revised_extracted"))
+    say(s, "Comparing with agreement terms…")
+    base_terms = (s.get("evaluation") or {}).get("terms") or s["extracted"]
+    upd = agents.evaluate_terms(base_terms, s.get("owner_reply"), s.get("revised_extracted"))
+    if s.get("owner_reply") and re.search(r"cap.*late fee|late fee.*cap|cap.*fee", s["owner_reply"], re.I):
+        upd["late_fee_capped"] = True
+    terms = calc.merge_terms(base_terms, s.get("revised_extracted"))
     terms = calc.merge_terms(terms, upd)
     checks = calc.check_must_haves(s["must_haves"], terms)
     new_risks = upd.get("new_risks", [])
@@ -668,6 +862,8 @@ def final_summary(s):
         lines.append(f"• Lock-in: {terms['lock_in_months']} months")
     if terms.get("annual_increase_pct"):
         lines.append(f"• Rent increase: {terms['annual_increase_pct']}% a year")
+    if terms.get("late_fee_capped"):
+        lines.append("• Late fee: Capped (reasonable limit agreed)")
     unclear = (s.get("report") or {}).get("unclear", [])
     if unclear:
         lines.append("\nConfirm before signing: " + "; ".join(f"{u['title']} (Clause {u['clause']})" for u in unclear))
@@ -702,7 +898,8 @@ def send_followup(s):
 
 HANDLERS = {
     "START": h_start, "LANG": h_lang, "COLLECT_DOC": h_collect_doc, "CONFIRM_TYPE": h_confirm_type,
-    "FIX_TYPE": h_fix_type, "PROFILE": h_profile, "TYPE_AMOUNT": h_type_amount,
+    "FIX_TYPE": h_fix_type, "CONFIRM_SAVED_PROFILE": h_confirm_saved_profile,
+    "PROFILE": h_profile, "TYPE_AMOUNT": h_type_amount,
     "MUSTHAVES": h_musthaves, "MH_EDIT": h_mh_edit, "REPORT": h_report, "ASK_Q": h_ask_q,
     "EVIDENCE": h_evidence, "UPSELL": h_upsell, "AWAIT_PAYMENT": h_await_payment, "TONE": h_tone,
     "SEND_CHOICE": h_send_choice, "AWAIT_OWNER_NO": h_owner_no, "AWAIT_OWNER_JOIN": h_await_owner_join,

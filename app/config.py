@@ -31,10 +31,21 @@ LLM_MODEL = env("LLM_MODEL", "claude-sonnet-5-5")
 AGENT_BACKEND = env("AGENT_BACKEND", "agenticorg")  # "agenticorg" (default) or "llm"
 AGENTICORG_URL = env("AGENTICORG_URL")
 AGENTICORG_API_KEY = env("AGENTICORG_API_KEY")
+AGENTICORG_COMPANY_ID = env("AGENTICORG_COMPANY_ID")  # required by the SDK when running agents by type
 
 # Payments
-PINELABS_MODE = env("PINELABS_MODE", "stub")  # "stub" or "live"
+PINELABS_MODE = env("PINELABS_MODE", "stub")  # "stub" (fake test page) | "upi" (real GPay/UPI QR, self-confirmed) | "live" (Pine Labs API)
 PRICE_RS = int(env("PRICE_RS", "49"))
+PINELABS_BASE_URL = env("PINELABS_BASE_URL", "https://pluraluat.v2.pinepg.in")  # UAT default; swap for prod when Pine Labs gives it
+PINELABS_CLIENT_ID = env("PINELABS_CLIENT_ID")
+PINELABS_CLIENT_SECRET = env("PINELABS_CLIENT_SECRET")
+PINELABS_WEBHOOK_SECRET = env("PINELABS_WEBHOOK_SECRET")  # set once Pine Labs confirms their signature scheme — see payments.py
+
+# UPI QR payment (PINELABS_MODE=upi) — a real upi://pay deep link any UPI
+# app (GPay, PhonePe, Paytm...) can scan/open. No gateway, so "paid" is
+# self-confirmed by tapping "I've paid" in chat, same as every other mode.
+UPI_VPA = env("UPI_VPA")            # your UPI ID, e.g. yourname@okaxis
+UPI_PAYEE_NAME = env("UPI_PAYEE_NAME", "Sign Smart")
 
 # Voice
 ELEVENLABS_API_KEY = env("ELEVENLABS_API_KEY")
