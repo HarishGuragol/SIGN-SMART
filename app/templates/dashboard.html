@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your agreement risk</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --ink:#14213D; --bg:#F7F5F0; --muted:#5B6475; --line:#E2E4E9; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:system-ui, "Noto Sans", sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:20px 16px 48px; display:grid; gap:16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px; }
+  h1 { font-size:22px; margin:0; } h2 { font-size:16px; margin:0 0 12px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .hero { display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; }
+  .score { font-size:44px; font-weight:700; line-height:1; }
+  .pill { display:inline-block; padding:6px 12px; border-radius:999px; font-weight:700; font-size:14px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; }
+  .big { font-size:28px; font-weight:700; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:10px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; border-top:0; }
+  .sev { font-weight:700; font-size:12px; padding:2px 8px; border-radius:6px; white-space:nowrap; }
+  .high { background:#FDE4E1; color:#8A1C10; } .medium { background:#FDEBD3; color:#7A2E0B; } .low { background:#E8EDF7; color:#14213D; }
+  .tablewrap { overflow-x:auto; }
+  ul.checks { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+  .foot { font-size:12px; color:var(--muted); text-align:center; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card hero">
+    <div>
+      <h1>Your agreement risk</h1>
+      <div class="muted" id="sumline"></div>
+    </div>
+    <div style="text-align:right">
+      <div class="score" id="score"></div>
+      <div class="muted">risk score out of 100</div>
+      <div style="margin-top:8px"><span class="pill" id="verdict"></span></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h2>Risk by area</h2><canvas id="cat" height="220" role="img" aria-label="Risk score by area"></canvas></div>
+    <div class="card">
+      <h2>Money at risk</h2>
+      <div class="big" id="total"></div>
+      <div class="muted" id="months"></div>
+      <canvas id="exp" height="180" style="margin-top:12px" role="img" aria-label="Money at risk by clause"></canvas>
+      <div class="muted" id="whatif" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Clauses to watch</h2>
+    <div class="tablewrap"><table><thead><tr><th>Clause</th><th>Risk</th><th>Level</th><th>What it means for you</th></tr></thead><tbody id="risks"></tbody></table></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h2>Your must-haves</h2><ul class="checks" id="checks"></ul></div>
+    <div class="card"><h2>In your favour and unclear</h2><ul class="checks" id="good"></ul></div>
+  </div>
+
+  <div class="card" id="evalcard" hidden>
+    <h2>After the owner's reply</h2>
+    <div id="evalverdict" style="margin-bottom:10px"></div>
+    <ul class="checks" id="evalchecks"></ul>
+  </div>
+
+  <p class="foot">Numbers are calculated from your agreement. Guidance, not legal advice. This page expires with your chat.</p>
+</main>
+<script>
+  const D = __DATA__;
+  const R = D.report, E = R.exposure || {items:[], total:0};
+  const rs = n => n == null ? "-" : "₹" + Math.round(n).toLocaleString("en-IN");
+  const el = id => document.getElementById(id);
+  const li = (text, color) => { const x = document.createElement("li"); x.textContent = text; if (color) x.style.color = color; return x; };
+
+  const s = D.summary || {};
+  el("sumline").textContent = [s.type && s.type.replace("_", " "), s.rent && rs(s.rent) + "/month",
+    s.deposit && rs(s.deposit) + " deposit", s.lock_in && s.lock_in + "-month lock-in"].filter(Boolean).join(" · ");
+  el("score").textContent = R.overall_score ?? "-";
+  const vcol = {SIGN:["#E3F3EA","#0F4A2D"], NEGOTIATE:["#FDEBD3","#7A2E0B"], "WALK AWAY":["#FDE4E1","#8A1C10"]}[R.verdict] || ["#EEE","#333"];
+  el("verdict").textContent = R.verdict; el("verdict").style.background = vcol[0]; el("verdict").style.color = vcol[1];
+
+  el("total").textContent = rs(E.total);
+  el("months").textContent = E.months_of_earnings ? `≈ ${E.months_of_earnings} months of your earnings` : "Worst case, from your agreement's numbers";
+  if (R.what_if_total != null && R.what_if_total < E.total)
+    el("whatif").textContent = `If the owner meets your must-haves: ${rs(R.what_if_total)} at risk.`;
+
+  const cats = R.categories || [];
+  new Chart(el("cat"), { type:"bar",
+    data:{ labels:cats.map(c => c.name), datasets:[{ data:cats.map(c => c.score), backgroundColor:"#F08A24", borderRadius:6 }] },
+    options:{ indexAxis:"y", plugins:{ legend:{display:false}, tooltip:{ callbacks:{ afterLabel:c => cats[c.dataIndex].why } } },
+      scales:{ x:{ min:0, max:100, grid:{color:"#EEE"} }, y:{ grid:{display:false} } } } });
+
+  const items = (E.items || []).filter(i => !i.per_event);
+  new Chart(el("exp"), { type:"bar",
+    data:{ labels:items.map(i => (i.clause ? "Cl. " + i.clause + " · " : "") + i.label), datasets:[{ data:items.map(i => i.amount), backgroundColor:"#14213D", borderRadius:6 }] },
+    options:{ indexAxis:"y", plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => rs(c.raw) } } },
+      scales:{ x:{ ticks:{ callback:v => rs(v) }, grid:{color:"#EEE"} }, y:{ grid:{display:false}, ticks:{ autoSkip:false } } } } });
+
+  for (const r of R.risks || []) {
+    const tr = document.createElement("tr");
+    const cells = [r.clause, r.title, null, r.why_for_you];
+    cells.forEach((v, i) => {
+      const td = document.createElement("td");
+      if (i === 2) { const b = document.createElement("span"); b.className = "sev " + (r.severity || "low"); b.textContent = (r.severity || "").toUpperCase(); td.appendChild(b); }
+      else td.textContent = v ?? "";
+      tr.appendChild(td);
+    });
+    el("risks").appendChild(tr);
+  }
+  for (const c of R.checks || []) el("checks").appendChild(li(`${c.met ? "✅" : "❌"} ${c.label} (now: ${c.now})`));
+  for (const b of R.benefits || []) el("good").appendChild(li(`🟢 ${b.title} (Clause ${b.clause})`, "#0F4A2D"));
+  for (const u of R.unclear || []) el("good").appendChild(li(`❓ ${u.title} (Clause ${u.clause})${u.ask_lawyer ? ": ask a lawyer" : ""}`));
+
+  if (D.evaluation) {
+    const ev = D.evaluation;
+    el("evalcard").hidden = false;
+    el("evalverdict").textContent = `${ev.verdict} · money at risk ${rs(ev.exposure_before)} → ${rs(ev.exposure_after)}`;
+    for (const c of ev.checks) el("evalchecks").appendChild(li(`${c.met ? "✅" : "❌"} ${c.label} (now: ${c.now})`));
+    for (const r of ev.new_risks || []) el("evalchecks").appendChild(li(`⚠️ New: ${r.title} (Clause ${r.clause})`, "#8A1C10"));
+  }
+</script>
+</body>
+</html>
