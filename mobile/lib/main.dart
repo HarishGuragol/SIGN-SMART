@@ -91,11 +91,81 @@ class SignSmartApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Widget initialHome = const SplashScreen();
+    if (kIsWeb) {
+      final screen = Uri.base.queryParameters['screen'];
+      final step = int.tryParse(Uri.base.queryParameters['step'] ?? '0') ?? 0;
+      if (screen == 'onboarding') {
+        initialHome = OnboardingScreen(initialPage: step);
+      } else if (screen == 'scanner') {
+        initialHome = const MainNavigationShell();
+      } else if (screen == 'audit') {
+        initialHome = const AuditReportScreen(
+          riskScore: 78,
+          verdict: 'HIGH RISK: UNFAIR LOCK-IN & DEPOSIT',
+          moneyAtRisk: 840000,
+          monthlyRent: 35000,
+          securityDeposit: 300000,
+          lockInMonths: 36,
+          dynamicRisks: [
+            {
+              'title': '36-Month Lock-in Period Exit Penalty',
+              'clause': 'Clause 5: Tenant shall not vacate before 36 months; entire remaining term rent payable upon early exit.',
+              'statute': 'Indian Contract Act, 1872 §74 (Unreasonable liquidated damages are void)',
+              'exposure': '₹8,40,000 at risk upon early termination',
+              'severity': 'high'
+            },
+            {
+              'title': 'Excessive Security Deposit (8.5 Months)',
+              'clause': 'Clause 3: Tenant shall deposit ₹3,00,000 security deposit with the landlord.',
+              'statute': 'Model Tenancy Act, 2021 §11 (Deposit capped at max 2 months for residential premises)',
+              'exposure': '₹2,30,000 over lawful limit (lawful limit is ₹70,000)',
+              'severity': 'high'
+            },
+            {
+              'title': 'Unilateral Arbitrary Late Fee',
+              'clause': 'Clause 9: ₹500 per day penalty for rent delay after 5th of each month.',
+              'statute': 'Model Tenancy Act, 2021 §23 (Prescribed dispute resolution and standard delay notice)',
+              'exposure': '₹15,000 per month excessive punitive fee',
+              'severity': 'medium'
+            }
+          ],
+        );
+      } else if (screen == 'negotiation') {
+        initialHome = const Scaffold(
+          body: NegotiationTab(
+            isStandalone: true,
+            monthlyRent: 35000,
+            securityDeposit: 300000,
+            lockInMonths: 36,
+          ),
+        );
+      } else if (screen == 'verify') {
+        initialHome = const Scaffold(
+          body: ScannerTab(
+            isVerificationMode: true,
+            initialRent: 35000,
+            initialDeposit: 300000,
+            initialLockIn: 36,
+          ),
+        );
+      } else if (screen == 'certified') {
+        initialHome = const FinalApprovalScreen(
+          riskScore: 12,
+          moneySaved: 770000,
+          monthlyRent: 35000,
+          finalDeposit: 70000,
+          finalLockIn: 11,
+          pdfDownloadUrl: '/media/certified_agreement_ss_mta_2026_619ed1.pdf',
+        );
+      }
+    }
+
     return MaterialApp(
       title: 'SignSmart',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
-      home: const SplashScreen(),
+      home: initialHome,
     );
   }
 }
