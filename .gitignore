@@ -7,6 +7,8 @@ data/
 *.log
 node_modules/
 *.png
+!docs/screenshots/*.png
+!docs/demo/*
 screenshots/
 final_submission_screenshots/
 flowchart_screenshots/

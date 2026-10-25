@@ -243,19 +243,83 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.canvas,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          TextButton(
-            onPressed: _goToApp,
-            child: const Text('Skip to App', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w700, fontSize: 13)),
-          ),
-        ],
-      ),
       body: SafeArea(
         child: Column(
           children: [
+            // Top Executive Header Layer
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.shield_rounded, color: Colors.white, size: 18),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'SignSmart',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.textMain,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryLight,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'LEGAL AI',
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppTheme.primaryDark),
+                        ),
+                      ),
+                    ],
+                  ),
+                  OutlinedButton(
+                    onPressed: _goToApp,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      side: const BorderSide(color: AppTheme.border),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      minimumSize: Size.zero,
+                    ),
+                    child: const Text(
+                      'Skip',
+                      style: TextStyle(color: AppTheme.textMuted, fontWeight: FontWeight.w700, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Sleek 3-Segment Top Progress Indicator
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              child: Row(
+                children: List.generate(3, (idx) => Expanded(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    height: 4,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(2),
+                      color: idx <= _current ? AppTheme.primary : AppTheme.border,
+                    ),
+                  ),
+                )),
+              ),
+            ),
+            const SizedBox(height: 8),
             Expanded(
               child: PageView.builder(
                 controller: _controller,
@@ -854,6 +918,44 @@ class _ScannerTabState extends State<ScannerTab> {
     }
   }
 
+  void _loadDemoAgreement() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const AuditReportScreen(
+          riskScore: 78,
+          verdict: 'HIGH RISK: UNFAIR LOCK-IN & DEPOSIT',
+          moneyAtRisk: 840000,
+          monthlyRent: 35000,
+          securityDeposit: 300000,
+          lockInMonths: 36,
+          dynamicRisks: [
+            {
+              'title': '36-Month Lock-in Period Exit Penalty',
+              'clause': 'Clause 5: Tenant shall not vacate before 36 months; entire remaining term rent payable upon early exit.',
+              'statute': 'Indian Contract Act, 1872 §74 (Unreasonable liquidated damages are void)',
+              'exposure': '₹8,40,000 at risk upon early termination',
+              'severity': 'high'
+            },
+            {
+              'title': 'Excessive Security Deposit (8.5 Months)',
+              'clause': 'Clause 3: Tenant shall deposit ₹3,00,000 security deposit with the landlord.',
+              'statute': 'Model Tenancy Act, 2021 §11 (Deposit capped at max 2 months for residential premises)',
+              'exposure': '₹2,30,000 over lawful limit (lawful limit is ₹70,000)',
+              'severity': 'high'
+            },
+            {
+              'title': 'Unilateral Arbitrary Late Fee',
+              'clause': 'Clause 9: ₹500 per day penalty for rent delay after 5th of each month.',
+              'statute': 'Model Tenancy Act, 2021 §23 (Prescribed dispute resolution and standard delay notice)',
+              'exposure': '₹15,000 per month excessive punitive fee',
+              'severity': 'medium'
+            }
+          ],
+        ),
+      ),
+    );
+  }
+
   void _simulateRevisedDraftAnalysis() {
     _showRound2AcceptanceDialog(
       rent: widget.initialRent ?? 35000,
@@ -1282,6 +1384,19 @@ class _ScannerTabState extends State<ScannerTab> {
                                     widget.isVerificationMode ? 'Snap amended contract page or select PDF' : 'Snap page 1 of your agreement or pick a PDF',
                                     style: const TextStyle(fontSize: 13, color: AppTheme.textMuted),
                                   ),
+                                  const SizedBox(height: 18),
+                                  if (!widget.isVerificationMode)
+                                    ElevatedButton.icon(
+                                      onPressed: _loadDemoAgreement,
+                                      icon: const Icon(Icons.flash_on_rounded, size: 16),
+                                      label: const Text('⚡ Load Demo Lease (Instant Audit)'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppTheme.primary,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),

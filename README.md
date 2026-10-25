@@ -6,6 +6,32 @@ SignSmart protects Indian tenants and small business owners from predatory renta
 
 ---
 
+## 🎬 End-to-End Walkthrough Demo & Video
+
+![SignSmart Mobile Flow Walkthrough](docs/demo/signsmart_flow_walkthrough.gif)
+
+> 📹 **High-Definition Video**: Watch the complete walkthrough in [docs/demo/signsmart_flow_video.webm](docs/demo/signsmart_flow_video.webm).
+
+### 📸 Step-by-Step Flow Gallery
+
+| 1. Splash Screen | 2. Forensic Audit Walkthrough | 3. Statutory Authority |
+| :---: | :---: | :---: |
+| ![Splash](docs/screenshots/01_splash_screen.png) | ![Audit Card](docs/screenshots/02_onboarding_slide1.png) | ![Law Card](docs/screenshots/03_onboarding_slide2.png) |
+
+| 4. Negotiation Intro | 5. Scanner Dashboard | 6. Audit & Risk Report |
+| :---: | :---: | :---: |
+| ![Studio Card](docs/screenshots/04_onboarding_slide3.png) | ![Scanner](docs/screenshots/05_scanner_dashboard.png) | ![Audit Report](docs/screenshots/06_audit_report.png) |
+
+| 7. Negotiation Studio | 8. Verification Prompt | 9. Round 2 Acceptance |
+| :---: | :---: | :---: |
+| ![Negotiation](docs/screenshots/08_negotiation_studio.png) | ![Prompt](docs/screenshots/09_verify_prompt_sheet.png) | ![Round 2](docs/screenshots/11_round2_confirmation_modal.png) |
+
+| 10. Final Certified Approval | 11. Stamped Certified PDF Document |
+| :---: | :---: |
+| ![Final Seal](docs/screenshots/12_final_certified_screen.png) | ![Stamped PDF](docs/screenshots/13_certified_stamped_pdf.png) |
+
+---
+
 ## 🌟 What Makes SignSmart Production-Ready
 
 1. **Multimodal Extraction & Risk Profiling**:
