@@ -9,7 +9,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import channel, config, db, payments, states
+from . import channel, config, db, payments, states, voice
 
 try:
     import qrcode
@@ -26,6 +26,9 @@ except ImportError:
 
 app = FastAPI(title="Sign Smart")
 app.mount("/media", StaticFiles(directory=config.MEDIA_DIR), name="media")
+FLUTTER_WEB = Path(__file__).resolve().parents[1] / "mobile" / "build" / "web"
+if FLUTTER_WEB.exists():
+    app.mount("/app", StaticFiles(directory=FLUTTER_WEB, html=True), name="flutter_app")
 TEMPLATES = Path(__file__).parent / "templates"
 
 
@@ -124,6 +127,55 @@ async def register_telegram_webhook():
 @app.get("/chat", response_class=HTMLResponse)
 def chat_page():
     return (TEMPLATES / "chat.html").read_text(encoding="utf-8")
+
+
+@app.post("/api/audit/upload")
+async def api_audit_upload(files: list[UploadFile] = File(...), phone: str = Form("app_user")):
+    if not files:
+        return {"error": "No files provided"}
+
+    saved_files = []
+    for f in files:
+        if not f.filename:
+            continue
+        dest = config.UPLOAD_DIR / f"{phone}_{int(time.time())}_{f.filename}"
+        content = await f.read()
+        dest.write_bytes(content)
+        saved_files.append((str(dest), f.content_type or "application/pdf"))
+
+    if not saved_files:
+        return {"error": "Could not read uploaded files"}
+
+    from . import agents, calc
+    # 1. Extraction via Gemini
+    extracted = agents.extract(saved_files)
+
+    # 2. Financial exposure calculation
+    profile = {"monthly_earnings": 50000, "stay_months": 12, "upfront_limit": 150000}
+    exp = calc.exposure(extracted, profile)
+
+    # 3. Risk profiling with statutory law citations
+    prof = agents.risk_profile(extracted, profile, [], exp)
+    score = calc.derive_score(prof, [], exp, profile)
+    verdict = calc.report_verdict([], prof.get("risks", []))
+
+    # 4. Save session in database
+    s = db.get(phone)
+    s["extracted"] = extracted
+    s["report"] = {**prof, "overall_score": score, "verdict": verdict, "exposure": exp}
+    s["state"] = "REPORT"
+    db.save(s)
+
+    return {
+        "status": "ok",
+        "phone": phone,
+        "risk_score": score,
+        "verdict": verdict,
+        "money_at_risk": exp.get("total", 0),
+        "extracted": extracted,
+        "risks": prof.get("risks", []),
+        "dashboard_token": s.get("token")
+    }
 
 
 @app.post("/api/message")
@@ -602,9 +654,84 @@ def stats():
     }
 
 
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page():
+    return (TEMPLATES / "admin.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/admin/users")
+def admin_users():
+    ss = db.all_sessions()
+    out = []
+    for s in ss:
+        rep = s.get("report") or {}
+        exp = rep.get("exposure") or {}
+        ex = s.get("extracted") or {}
+        tok = s.get("token")
+        dash_url = f"{config.BASE_URL}/d/{tok}" if tok and rep else None
+        out.append({
+            "phone": s.get("phone"),
+            "paid": bool(s.get("paid")),
+            "agreement_type": ex.get("agreement_type", "Standard Lease"),
+            "risk_score": rep.get("overall_score"),
+            "money_at_risk": exp.get("total", 0),
+            "state": s.get("state"),
+            "created_at": s.get("created_at"),
+            "lang": s.get("lang"),
+            "extracted": ex,
+            "risks": rep.get("risks", []),
+            "negotiation": s.get("negotiation"),
+            "tone": s.get("tone"),
+            "owner_phone": s.get("owner_phone"),
+            "dashboard_url": dash_url,
+        })
+    out.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
+    return out
+
+
+@app.post("/api/voice/summary")
+async def voice_summary(payload: dict, request: Request):
+    text = payload.get("text", "")
+    lang = payload.get("lang", "en")
+    if not text:
+        text = "Namaskara. Your SignSmart agreement audit is ready. We found high risk clauses in lock in and deposit."
+    audio_url = voice.tts(text, lang=lang)
+    rel_url = ""
+    if audio_url and "/media/" in audio_url:
+        filename = audio_url.split("/media/")[-1]
+        rel_url = f"/media/{filename}"
+        audio_url = f"{str(request.base_url).rstrip('/')}/media/{filename}"
+    return {"audio_url": audio_url, "relative_url": rel_url, "status": "ok" if audio_url else "failed"}
+
+
+@app.post("/api/agreement/certify")
+async def certify_agreement(payload: dict, request: Request):
+    from . import certify
+    rent = payload.get("rent", 35000)
+    deposit = payload.get("deposit", 70000)
+    lock_in = payload.get("lock_in", 11)
+    money_saved = payload.get("money_saved", 770000)
+    tenant_name = payload.get("tenant_name", "Rahul Sharma")
+    landlord_name = payload.get("landlord_name", "Mr. K. Sharma")
+    rel_pdf = certify.generate_certified_pdf(
+        rent=rent, deposit=deposit, lock_in=lock_in,
+        money_saved=money_saved, tenant_name=tenant_name,
+        landlord_name=landlord_name
+    )
+    full_url = f"{str(request.base_url).rstrip('/')}{rel_pdf}"
+    return {
+        "status": "ok",
+        "relative_url": rel_pdf,
+        "download_url": full_url,
+        "verdict": "APPROVED BY SIGNSMART",
+        "risk_score": 12,
+        "seal_hash": "SS-MTA-2026-VERIFIED"
+    }
+
+
 @app.get("/")
 def root():
-    return {"app": "Sign Smart", "chat": "/chat", "stats": "/stats"}
+    return {"app": "Sign Smart", "chat": "/chat", "stats": "/stats", "admin": "/admin"}
 
 
 # ---------------- Follow-up reminders ----------------

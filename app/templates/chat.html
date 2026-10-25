@@ -74,10 +74,12 @@
     box-shadow:0 6px 24px rgba(20,33,61,.07); }
   input[type=text] { flex:1; border:0; outline:0; height:40px; font-size:15px; background:transparent; color:var(--ink); }
   input[type=text]::placeholder { color:var(--muted); }
-  label.file, button.send { height:40px; width:40px; border-radius:50%; border:0; cursor:pointer;
+  label.file, button.send, button.mic { height:40px; width:40px; border-radius:50%; border:0; cursor:pointer;
     display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  label.file { background:var(--bg); font-size:16px; }
-  label.file:hover { background:var(--line); }
+  label.file, button.mic { background:var(--bg); font-size:16px; transition:all .2s; }
+  label.file:hover, button.mic:hover { background:var(--line); }
+  button.mic.recording { background:#EF4444; color:#fff; animation:pulse .8s infinite alternate; }
+  @keyframes pulse { 0% { transform:scale(1); } 100% { transform:scale(1.15); box-shadow:0 0 12px rgba(239,68,68,0.5); } }
   button.send { background:var(--accent); color:#fff; font-size:16px; }
   button.send:disabled { opacity:.4; cursor:default; }
   #files { display:none; }
@@ -106,7 +108,8 @@
     <label class="file" for="files" aria-label="Attach agreement">📎</label>
     <input id="files" type="file" multiple accept="image/*,application/pdf">
     <label for="t" style="position:absolute;left:-9999px">Message</label>
-    <input id="t" type="text" placeholder="Message, or tap an option above" autocomplete="off">
+    <input id="t" type="text" placeholder="Message, speak, or tap an option above" autocomplete="off">
+    <button class="mic" id="mic" type="button" aria-label="Voice input">🎙️</button>
     <button class="send" type="submit" aria-label="Send">➤</button>
   </div>
 </form>
@@ -256,6 +259,67 @@
   };
 
   document.getElementById("restart").onclick = () => sendMessage("menu");
+
+  // Web Speech API for voice interactions
+  const micBtn = document.getElementById("mic");
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let isRecording = false;
+
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-IN";
+
+    recognition.onstart = () => {
+      isRecording = true;
+      micBtn.classList.add("recording");
+      input.placeholder = "Listening... Speak your answer";
+    };
+
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      input.value = transcript;
+    };
+
+    recognition.onerror = (e) => {
+      console.log("Speech recognition error:", e);
+      stopRecording();
+    };
+
+    recognition.onend = () => {
+      stopRecording();
+      if (input.value.trim()) {
+        sendMessage(input.value);
+      }
+    };
+  }
+
+  function stopRecording() {
+    isRecording = false;
+    micBtn.classList.remove("recording");
+    input.placeholder = "Message, speak, or tap an option above";
+  }
+
+  micBtn.onclick = () => {
+    if (!SpeechRecognition) {
+      alert("Voice input is supported in Google Chrome, Microsoft Edge, and Safari.");
+      return;
+    }
+    if (isRecording) {
+      recognition.stop();
+    } else {
+      try {
+        recognition.start();
+      } catch (e) {
+        recognition.stop();
+      }
+    }
+  };
 </script>
 </body>
 </html>

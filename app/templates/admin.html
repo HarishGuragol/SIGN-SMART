@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SignSmart — Admin & User Directory</title>
+<style>
+  :root {
+    --primary: #00695C;
+    --primary-dark: #004D40;
+    --primary-light: #E0F2F1;
+    --bg: #F8F9FA;
+    --surface: #FFFFFF;
+    --text: #212121;
+    --text-muted: #666666;
+    --border: #E0E0E0;
+    --paid: #2E7D32;
+    --paid-bg: #E8F5E9;
+    --free: #E65100;
+    --free-bg: #FFF3E0;
+    --danger: #C62828;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    line-height: 1.5;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand h1 { font-size: 24px; font-weight: 700; color: var(--primary-dark); }
+  .brand span {
+    background: var(--primary-light);
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .stat-card .label { font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+  .stat-card .val { font-size: 26px; font-weight: 700; color: var(--text); }
+  .stat-card.paid .val { color: var(--paid); }
+  .stat-card.free .val { color: var(--free); }
+  .stat-card.risk .val { color: var(--primary); }
+
+  .controls {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px 12px 0 0;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .tabs { display: flex; gap: 8px; }
+  .tab {
+    background: none;
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .tab.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .search-box {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    width: 260px;
+    outline: none;
+  }
+  .search-box:focus { border-color: var(--primary); }
+
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    overflow-x: auto;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  }
+  table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+  th, td { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  th { background: #FAFBFB; color: var(--text-muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #F9FAFB; }
+
+  .badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge.paid { background: var(--paid-bg); color: var(--paid); }
+  .badge.free { background: var(--free-bg); color: var(--free); }
+  .badge.score-high { background: #FFEBEE; color: var(--danger); font-weight: 700; }
+  .badge.score-med { background: #FFF8E1; color: #F57F17; font-weight: 700; }
+  .badge.score-low { background: #E8F5E9; color: var(--paid); font-weight: 700; }
+
+  .btn-link {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-link:hover { text-decoration: underline; }
+
+  /* Modal Details */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border-radius: 14px;
+    max-width: 650px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    padding: 24px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h3 { font-size: 18px; color: var(--primary-dark); }
+  .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-muted); }
+  .detail-section { margin-bottom: 16px; }
+  .detail-section h4 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
+  .detail-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; }
+  .empty { text-align: center; padding: 40px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div class="brand">
+      <h1>SignSmart</h1>
+      <span>Admin Directory</span>
+    </div>
+    <div style="font-size: 13px; color: var(--text-muted);">
+      Updated in Realtime
+    </div>
+  </header>
+
+  <!-- KPI Cards -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="label">Total Users Analyzed</div>
+      <div class="val" id="stat-total">—</div>
+    </div>
+    <div class="stat-card paid">
+      <div class="label">Paid Pack Users (₹49)</div>
+      <div class="val" id="stat-paid">—</div>
+    </div>
+    <div class="stat-card free">
+      <div class="label">Free Audit Users</div>
+      <div class="val" id="stat-free">—</div>
+    </div>
+    <div class="stat-card risk">
+      <div class="label">Total Money at Risk Found</div>
+      <div class="val" id="stat-exposure">—</div>
+    </div>
+  </div>
+
+  <!-- Table Controls -->
+  <div class="controls">
+    <div class="tabs">
+      <button class="tab active" data-filter="all" onclick="setFilter('all', this)">All Users (<span id="count-all">0</span>)</button>
+      <button class="tab" data-filter="paid" onclick="setFilter('paid', this)">Paid Pack (<span id="count-paid">0</span>)</button>
+      <button class="tab" data-filter="free" onclick="setFilter('free', this)">Free Audit (<span id="count-free">0</span>)</button>
+    </div>
+    <input type="text" id="search" class="search-box" placeholder="Search phone, agreement type..." oninput="renderTable()">
+  </div>
+
+  <!-- User Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>User Phone</th>
+          <th>Plan</th>
+          <th>Agreement Type</th>
+          <th>Risk Score</th>
+          <th>Money at Risk</th>
+          <th>State / Progress</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="user-tbody">
+        <tr><td colspan="8" class="empty">Loading users...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal Details -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modal-title">User Session Details</h3>
+      <button class="close-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+let usersData = [];
+let currentFilter = 'all';
+
+function rs(v) {
+  if (v == null) return "—";
+  return "₹" + Number(v).toLocaleString("en-IN");
+}
+
+function formatDate(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+async function fetchUsers() {
+  try {
+    const res = await fetch("/api/admin/users");
+    usersData = await res.json();
+    updateStats();
+    renderTable();
+  } catch (e) {
+    console.error(e);
+    document.getElementById("user-tbody").innerHTML = `<tr><td colspan="8" class="empty">Failed to load users: ${e.message}</td></tr>`;
+  }
+}
+
+function updateStats() {
+  const total = usersData.length;
+  const paid = usersData.filter(u => u.paid).length;
+  const free = total - paid;
+  const exposure = usersData.reduce((acc, u) => acc + (u.money_at_risk || 0), 0);
+
+  document.getElementById("stat-total").textContent = total;
+  document.getElementById("stat-paid").textContent = paid;
+  document.getElementById("stat-free").textContent = free;
+  document.getElementById("stat-exposure").textContent = rs(exposure);
+
+  document.getElementById("count-all").textContent = total;
+  document.getElementById("count-paid").textContent = paid;
+  document.getElementById("count-free").textContent = free;
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  btn.classList.add("active");
+  renderTable();
+}
+
+function renderTable() {
+  const q = document.getElementById("search").value.toLowerCase().trim();
+  const tbody = document.getElementById("user-tbody");
+
+  let filtered = usersData.filter(u => {
+    if (currentFilter === 'paid' && !u.paid) return false;
+    if (currentFilter === 'free' && u.paid) return false;
+    if (q) {
+      const matchPhone = (u.phone || "").toLowerCase().includes(q);
+      const matchType = (u.agreement_type || "").toLowerCase().includes(q);
+      const matchState = (u.state || "").toLowerCase().includes(q);
+      return matchPhone || matchType || matchState;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty">No users matching criteria.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(u => {
+    let scoreBadge = `<span class="badge score-low">${u.risk_score || "—"}</span>`;
+    if (u.risk_score >= 66) scoreBadge = `<span class="badge score-high">${u.risk_score}</span>`;
+    else if (u.risk_score >= 36) scoreBadge = `<span class="badge score-med">${u.risk_score}</span>`;
+
+    const planBadge = u.paid
+      ? `<span class="badge paid">PAID PACK (₹49)</span>`
+      : `<span class="badge free">FREE AUDIT</span>`;
+
+    return `
+      <tr>
+        <td><strong>${u.phone || "Guest"}</strong></td>
+        <td>${planBadge}</td>
+        <td>${(u.agreement_type || "Standard Lease").replace('_', ' ').toUpperCase()}</td>
+        <td>${scoreBadge}</td>
+        <td><strong>${rs(u.money_at_risk)}</strong></td>
+        <td><code>${u.state || "START"}</code></td>
+        <td style="color:var(--text-muted); font-size:12px;">${formatDate(u.created_at)}</td>
+        <td>
+          <a class="btn-link" onclick="openDetails('${u.phone}')">View</a>
+          ${u.dashboard_url ? `&nbsp;·&nbsp;<a class="btn-link" href="${u.dashboard_url}" target="_blank">Dashboard</a>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function openDetails(phone) {
+  const u = usersData.find(x => x.phone === phone);
+  if (!u) return;
+  document.getElementById("modal-title").textContent = `Session Details — ${u.phone}`;
+  const mb = document.getElementById("modal-body");
+
+  const ex = u.extracted || {};
+  mb.innerHTML = `
+    <div class="detail-section">
+      <h4>Plan & Status</h4>
+      <div class="detail-box">
+        <strong>Plan:</strong> ${u.paid ? "Paid Full Pack (₹49)" : "Free Audit"}<br>
+        <strong>Current State:</strong> ${u.state}<br>
+        <strong>Created At:</strong> ${formatDate(u.created_at)}<br>
+        <strong>Language:</strong> ${u.lang || 'en'}
+      </div>
+    </div>
+    <div class="detail-section">
+      <h4>Extracted Agreement Terms</h4>
+      <div class="detail-box">
+        <strong>Monthly Rent:</strong> ${rs(ex.monthly_rent)}<br>
+        <strong>Security Deposit:</strong> ${rs(ex.deposit)}<br>
+        <strong>Lock-in Period:</strong> ${ex.lock_in_months != null ? ex.lock_in_months + ' months' : 'None'}<br>
+        <strong>Deposit Refund Deadline:</strong> ${ex.deposit_refund_days != null ? ex.deposit_refund_days + ' days' : 'Unspecified'}<br>
+        <strong>Annual Increase:</strong> ${ex.annual_increase_pct != null ? ex.annual_increase_pct + '%' : 'Standard'}
+      </div>
+    </div>
+    <div class="detail-section">
+      <h4>Risk Profile & Statutory References</h4>
+      <div class="detail-box">
+        <strong>Risk Score:</strong> ${u.risk_score || "N/A"}/100<br>
+        <strong>Money at Risk:</strong> ${rs(u.money_at_risk)}<br>
+        ${(u.risks || []).map(r => `
+          <div style="margin-top:8px; padding-top:6px; border-top:1px dashed #ccc;">
+            <b style="color:var(--danger)">• Clause ${r.clause || '?'}: ${r.title}</b><br>
+            <span>${r.why_for_you || ''}</span>
+            ${(r.legal_citations || []).map(c => `
+              <div style="font-size:11px; color:var(--primary); margin-top:2px;">
+                ⚖️ <i>${c.title}</i>: "${c.snippet.substring(0, 150)}..."
+              </div>
+            `).join('')}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    ${u.negotiation ? `
+      <div class="detail-section">
+        <h4>Negotiation Offer</h4>
+        <div class="detail-box">
+          <strong>Tone:</strong> ${u.tone || 'Friendly'}<br>
+          <strong>Owner Phone:</strong> ${u.owner_phone || 'Not sent'}<br>
+          <strong>Draft Message:</strong><br>
+          <pre style="white-space:pre-wrap; font-family:inherit; margin-top:4px; color:#333;">${u.negotiation.message || JSON.stringify(u.negotiation)}</pre>
+        </div>
+      </div>
+    ` : ''}
+  `;
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+function closeModal(e) {
+  document.getElementById("modal-overlay").classList.remove("open");
+}
+
+fetchUsers();
+</script>
+
+</body>
+</html>

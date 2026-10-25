@@ -12,3 +12,5 @@ final_submission_screenshots/
 flowchart_screenshots/
 demo/screenshots/
 
+.venv_local/
+media/

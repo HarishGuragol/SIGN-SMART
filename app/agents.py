@@ -213,102 +213,71 @@ def _file_blocks(files):
     return blocks
 
 
-def _call_llm(system, content, max_tokens=2000):
-    import anthropic
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    resp = client.messages.create(
-        model=config.LLM_MODEL, max_tokens=max_tokens, system=system,
-        messages=[{"role": "user", "content": content}],
-    )
-    return "".join(b.text for b in resp.content if b.type == "text")
-
-
-# Which AgenticOrg agent type handles each step (the "custom agent type" you created).
-AGENTICORG_TYPES = {
-    "extract": "agreement_extractor",
-    "risk_profile": "agreement_risk_profiler",
-    "negotiate": "agreement_negotiator",
-    "evaluate": "agreement_evaluator",
-    "translate": "language_translator",
-    "answer": "chat_agent",
-    "voice": "chat_agent",
-}
-
-_aorg_client = None
-
-
-def _agenticorg():
-    global _aorg_client
-    if _aorg_client is None:
-        from agenticorg import AgenticOrg
-        kwargs = {"api_key": config.AGENTICORG_API_KEY}
-        if config.AGENTICORG_URL:
-            kwargs["base_url"] = config.AGENTICORG_URL  # hackathon instance
-        try:
-            _aorg_client = AgenticOrg(**kwargs)
-        except TypeError:
-            # SDK may not take base_url; run help(AgenticOrg) to find the right name
-            _aorg_client = AgenticOrg(api_key=config.AGENTICORG_API_KEY)
-    return _aorg_client
-
-
-def _to_agenticorg_inputs(system, content):
-    """PDFs: text extracted here. Photos: sent as base64 for the agent's model to read."""
-    texts, images, doc_text = [], [], []
+def _to_gemini_parts(content):
+    """Anthropic-style content blocks -> Gemini parts (PDFs and images go inline)."""
+    parts = []
     for b in content:
         if b["type"] == "text":
-            texts.append(b["text"])
-        elif b["type"] == "document":
-            try:
-                import io
-                from pypdf import PdfReader
-                pdf = PdfReader(io.BytesIO(base64.b64decode(b["source"]["data"])))
-                doc_text.append("\n".join(p.extract_text() or "" for p in pdf.pages))
-            except Exception as e:
-                print(f"[pdf text extraction failed] {e}")
-        elif b["type"] == "image":
-            images.append({"media_type": b["source"]["media_type"], "data_base64": b["source"]["data"]})
-    inputs = {"instructions": system, "input": "\n".join(texts)}
-    if doc_text:
-        inputs["document_text"] = "\n\n".join(doc_text)
-    if images:
-        inputs["images"] = images
-    return inputs
+            parts.append({"text": b["text"]})
+        else:  # document / image, both base64
+            parts.append({"inline_data": {"mime_type": b["source"]["media_type"], "data": b["source"]["data"]}})
+    return parts
 
 
-def run_on_agenticorg(agent_name, system, content):
-    """Run one of our AgenticOrg employees via the SDK (pip install agenticorg)."""
-    import os
-    agent = os.getenv(f"AGENTICORG_AGENT_{agent_name.upper()}") or AGENTICORG_TYPES[agent_name]
-    result = _agenticorg().agents.run(agent, inputs=_to_agenticorg_inputs(system, content),
-                                      company_id=config.AGENTICORG_COMPANY_ID)
-    print(f"[agenticorg] {agent}: status={result.status} confidence={getattr(result, 'confidence', None)}")
-    out = result.output
-    if isinstance(out, (dict, list)):
-        if isinstance(out, dict) and len(out) == 1 and isinstance(next(iter(out.values())), (str, dict)):
-            inner = next(iter(out.values()))
-            return inner if isinstance(inner, str) else json.dumps(inner)
-        return json.dumps(out)
-    return str(out)
+_GEMINI_CACHE = {}
+
+
+def _call_gemini(system, content, max_tokens=3000, json_mode=False):
+    import httpx, hashlib
+    # Compute cache key from system prompt and user contents
+    cache_str = system + json.dumps(content, sort_keys=True)
+    cache_key = hashlib.sha256(cache_str.encode("utf-8")).hexdigest()
+    if cache_key in _GEMINI_CACHE:
+        return _GEMINI_CACHE[cache_key]
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent"
+    # Ensure JSON extraction has enough room to output all clauses without truncation
+    gen_cfg = {"temperature": 0.1, "maxOutputTokens": max(max_tokens, 3500) if json_mode else max_tokens}
+    if json_mode:
+        gen_cfg["responseMimeType"] = "application/json"
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": _to_gemini_parts(content)}],
+        "generationConfig": gen_cfg,
+    }
+    r = httpx.post(url, params={"key": config.GEMINI_API_KEY}, json=body, timeout=180)
+    r.raise_for_status()
+    cands = r.json().get("candidates") or []
+    if not cands:
+        raise ValueError(f"Gemini returned no candidates: {r.text[:300]}")
+    res = "".join(p.get("text", "") for p in cands[0].get("content", {}).get("parts", []))
+    _GEMINI_CACHE[cache_key] = res
+    return res
+
+
+JSON_AGENTS = {"extract", "risk_profile", "negotiate", "evaluate", "legal_review"}
 
 
 def run_agent(name, system, content, max_tokens=2000):
-    if config.AGENT_BACKEND == "agenticorg":
-        try:
-            return run_on_agenticorg(name, system, content)
-        except Exception as e:
-            print(f"[agenticorg failed for {name}] {e}")
-            if config.ANTHROPIC_API_KEY:  # emergency fallback only if a direct key is set
-                return _call_llm(system, content, max_tokens)
-            raise
-    return _call_llm(system, content, max_tokens)
+    return _call_gemini(system, content, max_tokens, json_mode=name in JSON_AGENTS)
 
 
 def _json(text):
-    m = re.search(r"\{.*\}", text, re.S)
+    clean = text.strip()
+    # Strip markdown ```json ... ```
+    if "```" in clean:
+        clean = re.sub(r"^```(?:json)?\s*", "", clean)
+        clean = re.sub(r"\s*```$", "", clean)
+    m = re.search(r"\{.*\}", clean, re.S)
     if not m:
         raise ValueError(f"No JSON in model output: {text[:200]}")
-    return json.loads(m.group(0))
+    raw = m.group(0)
+    try:
+        return json.loads(raw)
+    except Exception:
+        # Auto-fix common trailing comma issues
+        fixed = re.sub(r",\s*([\]\}])", r"\1", raw)
+        return json.loads(fixed)
 
 
 def _agent_json(name, system, content):
@@ -328,7 +297,14 @@ def extract(files):
 def risk_profile(extracted, profile, must_haves, exposure, note=None):
     payload = {"agreement": extracted, "profile": profile, "must_haves": must_haves,
                "computed_exposure": exposure, "user_note": note}
-    return _agent_json("risk_profile", RISK_PROFILER, [{"type": "text", "text": json.dumps(payload)}])
+    out = _agent_json("risk_profile", RISK_PROFILER, [{"type": "text", "text": json.dumps(payload)}])
+    try:
+        from .legal.matcher import get_citations_for_risks
+        if "risks" in out:
+            out["risks"] = get_citations_for_risks(out["risks"])
+    except Exception as e:
+        print(f"[legal citation enrichment error] {e}")
+    return out
 
 
 def negotiate(extracted, risks, must_haves, evidence, tone, lang, round_no, unmet, max_asks):
@@ -343,7 +319,14 @@ def negotiate(extracted, risks, must_haves, evidence, tone, lang, round_no, unme
 
 def evaluate_terms(original, owner_reply_text, revised_extracted):
     payload = {"original": original, "owner_reply_text": owner_reply_text, "revised_agreement": revised_extracted}
-    return _agent_json("evaluate", EVALUATOR, [{"type": "text", "text": json.dumps(payload)}])
+    out = _agent_json("evaluate", EVALUATOR, [{"type": "text", "text": json.dumps(payload)}])
+    try:
+        from .legal.matcher import get_citations_for_risks
+        if "new_risks" in out:
+            out["new_risks"] = get_citations_for_risks(out["new_risks"])
+    except Exception as e:
+        print(f"[evaluate legal citation enrichment error] {e}")
+    return out
 
 
 def answer(extracted, report, question, lang):
